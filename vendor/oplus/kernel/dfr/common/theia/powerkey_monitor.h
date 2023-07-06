@@ -14,7 +14,6 @@
 #include <linux/proc_fs.h>
 #include <linux/input.h>
 #include <linux/miscdevice.h>
-#include <linux/mutex.h>
 #ifdef CONFIG_ARM
 #include <linux/sched.h>
 #else
@@ -115,7 +114,6 @@ int get_systemserver_pid(void);
 void doPanic(void);
 void theia_send_event_init(void);
 void theia_send_event_exit(void);
-bool is_dual_screen(void);
 #if IS_ENABLED(CONFIG_DRM_PANEL_NOTIFY) || IS_ENABLED(CONFIG_QCOM_PANEL_EVENT_NOTIFIER)
 int br_register_panel_event_notify(void);
 #endif

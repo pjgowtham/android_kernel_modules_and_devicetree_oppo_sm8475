@@ -614,6 +614,10 @@ struct monitor_data {
 
 	u32 smooth_level_chosen;
 	u32 sensitive_level_chosen;
+
+	int below_rate_counts;
+	int avdd;
+	int vddi;
 };
 
 struct com_api_data {

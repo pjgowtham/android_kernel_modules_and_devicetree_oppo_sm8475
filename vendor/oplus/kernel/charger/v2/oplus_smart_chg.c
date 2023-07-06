@@ -10,7 +10,6 @@
 #include <linux/delay.h>
 #include <linux/slab.h>
 #include <linux/list.h>
-#include <linux/gfp.h>
 
 #include <oplus_chg.h>
 #include <oplus_chg_module.h>
@@ -53,15 +52,11 @@ struct oplus_smart_charge {
 	int quick_mode_stop_temp;
 	int quick_mode_stop_soc;
 	bool quick_mode_need_update;
-	bool smart_chg_bcc_support;
 	bool smart_chg_soh_support;
-	bool quick_mode_gain_support;
 
 	int batt_soc;
 	int batt_rm;
 	int shell_temp;
-	int bcc_current;
-	int bcc_buf[BCC_PARMS_COUNT];
 };
 
 static struct oplus_smart_charge *g_smart_chg;
@@ -115,11 +110,8 @@ static void oplus_smart_chg_quick_mode_check(struct oplus_smart_charge *smart_ch
 	cool_down = get_effective_result(smart_chg->cool_down_votable);
 
 	if (smart_chg->vooc_online &&
-		smart_chg->quick_mode_gain_support &&
-		(sid_to_adapter_power(smart_chg->vooc_sid) >= QUICK_MODE_POWER_THR_W)) {
+	    (sid_to_adapter_power(smart_chg->vooc_sid) > QUICK_MODE_POWER_THR_W))
 		quick_mode_check = true;
-	}
-
 	/* TODO: PPS */
 
 	if (!quick_mode_check)
@@ -148,7 +140,7 @@ static void oplus_smart_chg_quick_mode_check(struct oplus_smart_charge *smart_ch
 		}
 		current_normal_cool_down =
 			oplus_vooc_level_to_current(smart_chg->vooc_topic, smart_chg->normal_cool_down);
-		if (current_normal_cool_down <= 0) {
+		if (current_normal_cool_down < 0) {
 			chg_err("can't get current_normal_cool_down, cool_down=%d, rc=%d\n",
 				cool_down, current_normal_cool_down);
 			return;
@@ -182,20 +174,6 @@ static void oplus_smart_chg_quick_mode_check(struct oplus_smart_charge *smart_ch
 		}
 	} else {
 		gain_time_ms = ((current_cool_down * diff_time * 1000) / current_normal_cool_down) - (diff_time * 1000);
-	}
-
-	if (current_cool_down == current_normal_cool_down) {
-		gain_time_ms = 0;
-	} else if (current_cool_down == 0) {
-		if (current_normal_cool_down < batt_curve_current)
-			gain_time_ms = ((batt_curve_current * diff_time * 1000) / current_normal_cool_down) -
-				(diff_time * 1000);
-		else
-			gain_time_ms = 0;
-	}
-	if (gain_time_ms < 0) {
-		chg_err("gain_time_ms:%ld, force set 0 \n", gain_time_ms);
-		gain_time_ms = 0;
 	}
 	smart_chg->quick_mode_gain_time_ms = smart_chg->quick_mode_gain_time_ms + gain_time_ms;
 
@@ -383,569 +361,20 @@ static void oplus_smart_chg_common_topic_ready(struct oplus_mms *topic,
 
 static int oplus_smart_charge_parse_dt(struct oplus_smart_charge *smart_chg)
 {
-	bool bcc_support = 0;
-	struct oplus_mms *vooc_topic;
 	struct device_node *node = smart_chg->dev->of_node;
-
-	vooc_topic = g_smart_chg->vooc_topic;
-
-	bcc_support = oplus_vooc_get_bcc_support_for_smartchg(vooc_topic);
-	chg_info("oplus,smart_chg_bcc_support is %d %d %p\n",
-		smart_chg->smart_chg_bcc_support, bcc_support, node);
 
 	smart_chg->smart_chg_soh_support =
 		of_property_read_bool(node, "oplus,smart_chg_soh_support");
-	smart_chg->quick_mode_gain_support =
-                of_property_read_bool(node, "oplus,quick_mode_gain_support");
-
-	chg_info("oplus,smart_chg_soh_support is %d, quick_mode_gain_support = %d\n",
-		smart_chg->smart_chg_soh_support,
-		smart_chg->quick_mode_gain_support);
+	chg_info("oplus,smart_chg_soh_support is %d\n",
+		smart_chg->smart_chg_soh_support);
 
 	return 0;
 }
 
-#define BCC_SET_DEBUG_PARMS 1
-#define BCC_PAGE_SIZE 256
-#define BCC_N_DEBUG 0
-#define BCC_Y_DEBUG 1
-#define BCC_TEMP_RANGE_WRONG 0
-static int bcc_debug_mode  = BCC_N_DEBUG;
-static char bcc_debug_buf[BCC_PAGE_SIZE] = {0};
-static int oplus_vooc_check_bcc_max_curr(void)
-{
-	int bcc_max_curr = 0;
-	struct oplus_mms *vooc_topic;
-	union mms_msg_data data = { 0 };
-	int rc;
-
-	if (NULL == g_smart_chg)
-		return 0;
-
-	vooc_topic = g_smart_chg->vooc_topic;
-	if (!vooc_topic)
-		return 0;
-
-	rc = oplus_mms_get_item_data(vooc_topic, VOOC_ITEM_GET_BCC_MAX_CURR, &data, true);
-	if (!rc)
-		bcc_max_curr = data.intval;
-
-	return bcc_max_curr;
-}
-
-static int oplus_vooc_check_bcc_min_curr(void)
-{
-	int bcc_min_curr = 0;
-	struct oplus_mms *vooc_topic;
-	union mms_msg_data data = { 0 };
-	int rc;
-
-	if (NULL == g_smart_chg)
-		return 0;
-
-	vooc_topic = g_smart_chg->vooc_topic;
-	if (!vooc_topic)
-		return 0;
-
-	rc = oplus_mms_get_item_data(vooc_topic, VOOC_ITEM_GET_BCC_MIN_CURR, &data, true);
-	if (!rc)
-		bcc_min_curr = data.intval;
-
-	return bcc_min_curr;
-}
-
-static int oplus_vooc_get_bcc_exit_curr(void)
-{
-	int bcc_stop_curr = 0;
-	struct oplus_mms *vooc_topic;
-	union mms_msg_data data = { 0 };
-	int rc;
-
-	if (NULL == g_smart_chg)
-		return 0;
-
-	vooc_topic = g_smart_chg->vooc_topic;
-	if (!vooc_topic)
-		return 0;
-
-	rc = oplus_mms_get_item_data(vooc_topic, VOOC_ITEM_GET_BCC_STOP_CURR, &data, true);
-	if (!rc)
-		bcc_stop_curr = data.intval;
-
-	return bcc_stop_curr;
-}
-
-static int oplus_vooc_check_bcc_temp(void)
-{
-	int bcc_temp = 0;
-	struct oplus_mms *comm_topic;
-	union mms_msg_data data = { 0 };
-	int rc;
-
-	if (NULL == g_smart_chg)
-		return 0;
-
-	comm_topic = g_smart_chg->comm_topic;
-	if (!comm_topic)
-		return 0;
-
-	rc = oplus_mms_get_item_data(comm_topic, COMM_ITEM_SHELL_TEMP, &data, true);
-	if (!rc)
-		bcc_temp = data.intval;
-
-	return bcc_temp;
-}
-
-static int oplus_vooc_check_bcc_temp_range(void)
-{
-	int bcc_temp_status = 0;
-	struct oplus_mms *vooc_topic;
-	union mms_msg_data data = { 0 };
-	int rc;
-
-	if (NULL == g_smart_chg)
-		return 0;
-
-	vooc_topic = g_smart_chg->vooc_topic;
-	if (!vooc_topic)
-		return 0;
-
-	rc = oplus_mms_get_item_data(vooc_topic, VOOC_ITEM_GET_BCC_TEMP_RANGE, &data, true);
-	if (!rc)
-		bcc_temp_status = data.intval;
-
-	return bcc_temp_status;
-}
-
-static bool oplus_vooc_get_fastchg_ing(void)
-{
-	int fastchg_status = 0;
-	struct oplus_mms *vooc_topic;
-	union mms_msg_data data = { 0 };
-	int rc;
-
-	if (NULL == g_smart_chg)
-		return false;
-
-	vooc_topic = g_smart_chg->vooc_topic;
-	if (!vooc_topic)
-		return false;
-
-	rc = oplus_mms_get_item_data(vooc_topic, VOOC_ITEM_VOOC_CHARGING, &data, true);
-	if (!rc)
-		fastchg_status = data.intval;
-
-	if (fastchg_status == true)
-		return true;
-
-	return false;
-}
-
-static bool oplus_voocphy_get_fastchg_ing(void)
-{
-	int fastchg_status = 0;
-	struct oplus_mms *vooc_topic;
-	union mms_msg_data data = { 0 };
-	int rc;
-
-	if (NULL == g_smart_chg)
-		return false;
-
-	vooc_topic = g_smart_chg->vooc_topic;
-	if (!vooc_topic)
-		return false;
-
-	rc = oplus_mms_get_item_data(vooc_topic, VOOC_ITEM_VOOCPHY_BCC_GET_FASTCHG_ING, &data, true);
-	if (!rc)
-		fastchg_status = data.intval;
-
-	if (fastchg_status == true)
-		return true;
-
-	return false;
-}
-
-static int oplus_vooc_get_fast_chg_type(void)
-{
-	int svooc_type = 0;
-	struct oplus_mms *vooc_topic;
-	union mms_msg_data data = { 0 };
-	int rc;
-
-	if (NULL == g_smart_chg)
-		return 0;
-
-	vooc_topic = g_smart_chg->vooc_topic;
-
-	if (!vooc_topic)
-		return 0;
-
-	rc = oplus_mms_get_item_data(vooc_topic, VOOC_ITEM_GET_BCC_SVOOC_TYPE, &data, true);
-	if (!rc)
-		svooc_type = data.intval;
-	return svooc_type;
-}
-
-static void oplus_smart_chg_bcc_set_buffer(int *buffer)
-{
-	int batt_qmax_1 = 0;
-	int batt_qmax_2 = 0;
-	int batt_qmax_passed_q = 0;
-	int batt_dod0_1 = 0;
-	int batt_dod0_2 = 0;
-	int batt_dod0_passed_q = 0;
-	int soc_ext_1 = 0, soc_ext_2 = 0;
-	int btemp = 0;
-	int batt_current = 0;
-	int voltage_cell1 = 0, voltage_cell2 = 0;
-	int bcc_current_max = 0, bcc_current_min = 0;
-	int atl_last_gear_current = 0;
-	int gauge_type;
-	struct oplus_mms *gauge_topic;
-
-	if (NULL == buffer) {
-		chg_err("oplus_smart_chg_bcc_set_buffer input error!");
-	    return;
-	}
-
-	if (true == oplus_voocphy_get_fastchg_ing() ||
-		(oplus_vooc_get_fastchg_ing() && oplus_vooc_get_fast_chg_type() != BCC_TYPE_IS_VOOC)){
-		bcc_current_max = oplus_vooc_check_bcc_max_curr();
-		bcc_current_min = oplus_vooc_check_bcc_min_curr();
-		atl_last_gear_current = oplus_vooc_get_bcc_exit_curr();
-	}
-
-	gauge_topic = g_smart_chg->gauge_topic;
-	oplus_gauge_get_gauge_type(gauge_topic, 0, &gauge_type);
-
-	if ((DEVICE_ZY0603 == gauge_type) || (DEVICE_ZY0602 == gauge_type)) {
-		buffer[17] = SW_GAUGE;
-	} else if ((DEVICE_BQ27411 == gauge_type) || (DEVICE_BQ27541 == gauge_type)) {
-		buffer[17] = TI_GAUGE;
-	} else {
-		buffer[17] = UNKNOWN_GAUGE_TYPE;
-	}
-
-	if ((DEVICE_ZY0602 == gauge_type) || (DEVICE_BQ27411 == gauge_type)) {
-		buffer[18] = SINGLE_CELL;
-	} else {
-		buffer[18] = DOUBLE_SERIES_WOUND_CELLS;
-	}
-
-	oplus_gauge_get_qmax(gauge_topic, 0, &batt_qmax_1);
-	oplus_gauge_get_qmax(gauge_topic, 1, &batt_qmax_2);
-	oplus_gauge_get_qmax_passed_q(gauge_topic, 0, &batt_qmax_passed_q);
-	oplus_gauge_get_dod0(gauge_topic, 0, &batt_dod0_1);
-	oplus_gauge_get_dod0(gauge_topic, 1, &batt_dod0_2);
-	oplus_gauge_get_dod0_passed_q(gauge_topic, 0, &batt_dod0_passed_q);
-
-	oplus_gauge_get_volt(gauge_topic, 0, &voltage_cell1);
-	oplus_gauge_get_volt(gauge_topic, 1, &voltage_cell2);
-
-	batt_current = oplus_gauge_get_batt_current();
-
-	btemp = oplus_vooc_check_bcc_temp();
-
-	if (DEVICE_ZY0603 == gauge_type) {
-		batt_dod0_passed_q = 0;
-		buffer[17] = 1;
-	}
-
-	buffer[0] = batt_dod0_1;
-	buffer[1] = batt_dod0_2;
-	buffer[2] = batt_dod0_passed_q;
-	buffer[3] = batt_qmax_1;
-	buffer[4] = batt_qmax_2;
-	buffer[5] = batt_qmax_passed_q;
-	buffer[6] = voltage_cell1;
-	buffer[7] = btemp;
-	buffer[8] = batt_current;
-	buffer[9] = bcc_current_max;
-	buffer[10] = bcc_current_min;
-	buffer[11] = voltage_cell2;
-	buffer[12] = soc_ext_1;
-	buffer[13] = soc_ext_2;
-	buffer[14] = atl_last_gear_current;
-	return;
-}
-
-int oplus_smart_chg_get_battery_bcc_parameters(char *buf)
-{
-	unsigned char *tmpbuf;
-	unsigned int buffer[BCC_PARMS_COUNT] = { 0 };
-	int len = 0;
-	int i = 0;
-	int idx = 0;
-	struct oplus_mms *wired_topic;
-	bool vooc_get_fastchg_ing;
-	int vooc_get_fast_chg_type;
-	bool voocphy_get_fastchg_ing;
-	int vooc_check_bcc_temp_range;
-
-	if ((NULL == buf) || (NULL == g_smart_chg)) {
-		chg_err("input buf or g_smart_chg error");
-		return -ENOMEM;
-	}
-
-	oplus_smart_chg_bcc_set_buffer(buffer);
-	vooc_get_fastchg_ing = oplus_vooc_get_fastchg_ing();
-	vooc_get_fast_chg_type = oplus_vooc_get_fast_chg_type();
-	voocphy_get_fastchg_ing = oplus_voocphy_get_fastchg_ing();
-	vooc_check_bcc_temp_range = oplus_vooc_check_bcc_temp_range();
-
-	if ((vooc_get_fastchg_ing && vooc_get_fast_chg_type != BCC_TYPE_IS_VOOC) ||
-	    voocphy_get_fastchg_ing) {
-		buffer[15] = 1;
-	} else {
-		buffer[15] = 0;
-	}
-
-	if (buffer[9] == 0) {
-		buffer[15] = 0;
-	}
-
-	wired_topic = g_smart_chg->wired_topic;
-	if (NULL == wired_topic) {
-		chg_err("input wired_topic error");
-		return -ENOMEM;
-	}
-
-	tmpbuf = (unsigned char *)get_zeroed_page(GFP_KERNEL);
-	if (NULL == tmpbuf) {
-		chg_err("input tmpbuf error");
-		return -ENOMEM;
-	}
-
-	buffer[16] = oplus_wired_get_bcc_curr_done_status(wired_topic);
-
-	if (voocphy_get_fastchg_ing ||
-	    (vooc_get_fastchg_ing && (vooc_get_fast_chg_type != BCC_TYPE_IS_VOOC))) {
-		if (vooc_check_bcc_temp_range == BCC_TEMP_RANGE_WRONG) {
-			buffer[9] = 0;
-			buffer[10] = 0;
-			buffer[14] = 0;
-			buffer[15] = 0;
-		}
-	}
-
-	chg_info("----dod0_1[%d], dod0_2[%d], dod0_passed_q[%d], qmax_1[%d], qmax_2[%d], qmax_passed_q[%d], "
-		"voltage_cell1[%d], temperature[%d], batt_current[%d], max_current[%d], min_current[%d], voltage_cell2[%d], "
-		"soc_ext_1[%d], soc_ext_2[%d], atl_last_geat_current[%d], charging_flag[%d], bcc_curr_done[%d], is_zy0603[%d], "
-		"batt_type[%d]\n bcc_voocphy buf:%d,%d,%d,%d\n",
-		buffer[0], buffer[1], buffer[2], buffer[3], buffer[4], buffer[5], buffer[6], buffer[7],
-		buffer[8], buffer[9], buffer[10], buffer[11], buffer[12], buffer[13], buffer[14], buffer[15], buffer[16],
-		buffer[17], buffer[18], vooc_get_fastchg_ing, vooc_get_fast_chg_type, vooc_check_bcc_temp_range,
-		voocphy_get_fastchg_ing);
-
-	for (i = 0; i < BCC_PARMS_COUNT - 1; i++) {
-		len = snprintf(tmpbuf, BCC_PAGE_SIZE - idx, "%d,", buffer[i]);
-		memcpy(&buf[idx], tmpbuf, len);
-		idx += len;
-	}
-	len = snprintf(tmpbuf, BCC_PAGE_SIZE - idx, "%d", buffer[i]);
-	memcpy(&buf[idx], tmpbuf, len);
-
-	free_page((unsigned long)tmpbuf);
-
-
-#ifdef BCC_SET_DEBUG_PARMS
-	if (bcc_debug_mode & BCC_Y_DEBUG) {
-		memcpy(&buf[0], bcc_debug_buf, BCC_PAGE_SIZE);
-		chg_info("bcc_debug_buf:%s\n", bcc_debug_buf);
-		return 0;
-	}
-#endif
-
-	chg_info("buf:%s\n", buf);
-	return 0;
-}
-
-static void oplus_smart_chg_bcc_pre_calibration(int *buffer)
-{
-	if (!g_smart_chg || (NULL == buffer)) {
-		chg_err("input g_smart_chg or buffer error");
-		return;
-	}
-
-	memcpy(g_smart_chg->bcc_buf, buffer, BCC_PARMS_COUNT_LEN);
-}
-
-int oplus_smart_chg_get_fastchg_battery_bcc_parameters(char *buf)
-{
-	unsigned int buffer[BCC_PARMS_COUNT] = {0};
-	struct oplus_mms *wired_topic;
-
-	if (!g_smart_chg || (NULL == buf)) {
-		chg_err("input g_smart_chg or buf error");
-		return -ENOMEM;
-	}
-
-	wired_topic = g_smart_chg->wired_topic;
-	if (NULL == wired_topic) {
-		chg_err("input wired_topic error");
-		return -ENOMEM;
-	}
-
-	oplus_smart_chg_bcc_set_buffer(buffer);
-
-	if (oplus_vooc_get_fastchg_ing() && oplus_vooc_get_fast_chg_type() == BCC_TYPE_IS_SVOOC) {
-		buffer[15] = 1;
-	} else {
-		buffer[15] = 0;
-	}
-
-	if (buffer[9] == 0) {
-		buffer[15] = 0;
-	}
-
-	buffer[16] = oplus_wired_get_bcc_curr_done_status(wired_topic);
-
-	chg_info("----dod0_1[%d], dod0_2[%d], dod0_passed_q[%d], qmax_1[%d], qmax_2[%d], qmax_passed_q[%d], "
-		"voltage_cell1[%d], temperature[%d], batt_current[%d], max_current[%d], min_current[%d], voltage_cell2[%d], "
-		"soc_ext_1[%d], soc_ext_2[%d], atl_last_geat_current[%d], charging_flag[%d], bcc_curr_done[%d], "
-		"is_zy0603[%d], batt_type[%d]\n",
-		buffer[0], buffer[1], buffer[2], buffer[3], buffer[4], buffer[5], buffer[6], buffer[7],
-		buffer[8], buffer[9], buffer[10], buffer[11], buffer[12], buffer[13], buffer[14], buffer[15], buffer[16],
-		buffer[17], buffer[18]);
-
-	oplus_smart_chg_bcc_pre_calibration(buffer);
-
-	chg_info("buf:%s\n", buf);
-	return 0;
-}
-
-int oplus_smart_chg_get_prev_battery_bcc_parameters(char *buf)
-{
-	int i = 0;
-	int idx = 0;
-	unsigned char *tmpbuf;
-	int len = 0;
-	struct oplus_mms *wired_topic;
-	bool vooc_get_fastchg_ing;
-	int vooc_get_fast_chg_type;
-	bool voocphy_get_fastchg_ing;
-	int vooc_check_bcc_temp_range;
-	unsigned int buffer[BCC_PARMS_COUNT] = { 0 };
-
-	if (!g_smart_chg || (NULL == buf)) {
-		chg_err("input g_smart_chg or buf error");
-		return -ENOMEM;
-	}
-	wired_topic = g_smart_chg->wired_topic;
-
-	if (NULL == wired_topic) {
-		chg_err("input wired_topic error!");
-		return -ENOMEM;
-	}
-
-	tmpbuf = (unsigned char *)get_zeroed_page(GFP_KERNEL);
-	if (NULL == tmpbuf) {
-		chg_err("input tmpbuf error !");
-		return -ENOMEM;
-	}
-
-	memcpy(buffer, g_smart_chg->bcc_buf, BCC_PARMS_COUNT_LEN);
-	vooc_get_fastchg_ing = oplus_vooc_get_fastchg_ing();
-	vooc_get_fast_chg_type = oplus_vooc_get_fast_chg_type();
-	voocphy_get_fastchg_ing = oplus_voocphy_get_fastchg_ing();
-	vooc_check_bcc_temp_range = oplus_vooc_check_bcc_temp_range();
-
-	if ((vooc_get_fastchg_ing && vooc_get_fast_chg_type != BCC_TYPE_IS_VOOC) ||
-	    voocphy_get_fastchg_ing) {
-		buffer[9] = oplus_vooc_check_bcc_max_curr();
-		buffer[10] = oplus_vooc_check_bcc_min_curr();
-	}
-
-	if ((vooc_get_fastchg_ing && vooc_get_fast_chg_type != BCC_TYPE_IS_VOOC) ||
-		voocphy_get_fastchg_ing) {
-		buffer[15] = 1;
-	} else {
-		buffer[15] = 0;
-	}
-
-	if (buffer[9] == 0) {
-		buffer[15] = 0;
-	}
-
-	buffer[16] = oplus_wired_get_bcc_curr_done_status(wired_topic);
-
-	if ((vooc_get_fastchg_ing && vooc_get_fast_chg_type != BCC_TYPE_IS_VOOC) ||
-	    voocphy_get_fastchg_ing) {
-		if (vooc_check_bcc_temp_range == BCC_TEMP_RANGE_WRONG) {
-			buffer[9] = 0;
-			buffer[10] = 0;
-			buffer[14] = 0;
-			buffer[15] = 0;
-		}
-	}
-
-	chg_info("bcc_voocphy buf:%d,%d,%d,%d\n", vooc_get_fastchg_ing,
-		vooc_get_fast_chg_type, vooc_check_bcc_temp_range, voocphy_get_fastchg_ing);
-
-	for (i = 0; i < BCC_PARMS_COUNT - 1; i++) {
-		len = snprintf(tmpbuf, BCC_PAGE_SIZE - idx, "%d,", buffer[i]);
-		memcpy(&buf[idx], tmpbuf, len);
-		idx += len;
-	}
-	len = snprintf(tmpbuf, BCC_PAGE_SIZE - idx, "%d", buffer[i]);
-	memcpy(&buf[idx], tmpbuf, len);
-
-	free_page((unsigned long)tmpbuf);
-
-#ifdef BCC_SET_DEBUG_PARMS
-	if (bcc_debug_mode & BCC_Y_DEBUG) {
-		memcpy(&buf[0], bcc_debug_buf, BCC_PAGE_SIZE);
-		chg_info("bcc_debug_buf:%s\n", bcc_debug_buf);
-		return 0;
-	}
-#endif
-
-	chg_info("bcc_buf:%s\n", buf);
-	return 0;
-}
-
-int oplus_smart_chg_set_bcc_debug_parameters(const char *buf)
-{
-	int ret = 0;
-#ifdef BCC_SET_DEBUG_PARMS
-	char temp_buf[10] = {0};
-#endif
-
-	if (NULL == buf) {
-		return -ENOMEM;
-	}
-
-#ifdef BCC_SET_DEBUG_PARMS
-	if (strlen(buf) <= BCC_PAGE_SIZE) {
-		if (strncpy(temp_buf, buf, 7)) {
-			chg_info("temp_buf:%s\n", temp_buf);
-		}
-		if (!strncmp(temp_buf, "Y_DEBUG", 7)) {
-			bcc_debug_mode = BCC_Y_DEBUG;
-			chg_info("BCC_Y_DEBUG:%d\n", bcc_debug_mode);
-		} else {
-			bcc_debug_mode = BCC_N_DEBUG;
-			chg_info("BCC_N_DEBUG:%d\n", bcc_debug_mode);
-		}
-		strncpy(bcc_debug_buf, buf + 8, strlen(buf) - 8);
-		chg_info("bcc_debug_buf:%s, temp_buf:%s\n",
-			 bcc_debug_buf, temp_buf);
-		return ret;
-	}
-#endif
-
-	chg_info("buf:%s\n", buf);
-	return ret;
-}
 
 static int oplus_smart_charge_probe(struct platform_device *pdev)
 {
 	struct oplus_smart_charge *smart_chg;
-
-	if (pdev == NULL) {
-		chg_err("oplus_smart_charge_probe input pdev error\n");
-		return -ENODEV;
-	}
 
 	smart_chg = devm_kzalloc(&pdev->dev, sizeof(struct oplus_smart_charge), GFP_KERNEL);
 	if (smart_chg == NULL) {
@@ -957,9 +386,9 @@ static int oplus_smart_charge_probe(struct platform_device *pdev)
 
 	INIT_WORK(&smart_chg->quick_mode_check_work, oplus_smart_chg_quick_mode_check_work);
 	oplus_mms_wait_topic("common", oplus_smart_chg_common_topic_ready, smart_chg);
-	g_smart_chg = smart_chg;
 
 	oplus_smart_charge_parse_dt(smart_chg);
+	g_smart_chg = smart_chg;
 
 	return 0;
 }

@@ -26,7 +26,6 @@ struct oplus_gki_device {
 	struct mms_subscribe *vooc_subs;
 	struct oplus_mms *wired_topic;
 	struct oplus_mms *gauge_topic;
-	struct oplus_mms *main_gauge_topic;
 	struct oplus_mms *wls_topic;
 	struct oplus_mms *comm_topic;
 	struct oplus_mms *vooc_topic;
@@ -102,15 +101,6 @@ is_vooc_curr_votable_available(struct oplus_gki_device *chip)
 		chip->vooc_curr_votable = find_votable("VOOC_CURR");
 	return !!chip->vooc_curr_votable;
 }
-
-static bool is_main_gauge_topic_available(struct oplus_gki_device *chip)
-{
-	if (!chip->main_gauge_topic)
-		chip->main_gauge_topic = oplus_mms_get_by_name("gauge:0");
-
-	return !!chip->main_gauge_topic;
-}
-
 
 static int wls_psy_get_prop(struct power_supply *psy,
 		enum power_supply_property prop,
@@ -378,7 +368,6 @@ static int battery_psy_get_prop(struct power_supply *psy,
 	struct oplus_gki_device *chip = power_supply_get_drvdata(psy);
 	union mms_msg_data data = { 0 };
 	int rc = 0;
-	int bms_temp_compensation;
 
 	switch (prop) {
 	case POWER_SUPPLY_PROP_STATUS:
@@ -424,13 +413,8 @@ static int battery_psy_get_prop(struct power_supply *psy,
 #endif
 		break;
 	case POWER_SUPPLY_PROP_CURRENT_NOW:
-		if (is_support_parallel_battery(chip->gauge_topic) &&
-		    is_main_gauge_topic_available(chip))
-			rc = oplus_mms_get_item_data(chip->main_gauge_topic, GAUGE_ITEM_CURR,
-						     &data, (chip->wired_online || chip->wls_online));
-		else
-			rc = oplus_mms_get_item_data(chip->gauge_topic, GAUGE_ITEM_CURR,
-						     &data, (chip->wired_online || chip->wls_online));
+		rc = oplus_mms_get_item_data(chip->gauge_topic, GAUGE_ITEM_CURR,
+					     &data, (chip->wired_online || chip->wls_online));
 		pval->intval = data.intval;
 		break;
 	case POWER_SUPPLY_PROP_CHARGE_CONTROL_LIMIT:
@@ -441,18 +425,7 @@ static int battery_psy_get_prop(struct power_supply *psy,
 		pval->intval = 1;
 		break;
 	case POWER_SUPPLY_PROP_TEMP:
-		if (is_support_parallel_battery(chip->gauge_topic) &&
-		    is_main_gauge_topic_available(chip)) {
-			rc = oplus_mms_get_item_data(chip->main_gauge_topic, GAUGE_ITEM_TEMP,
-						     &data, false);
-			pval->intval = data.intval;
-		} else {
-			bms_temp_compensation = oplus_comm_get_bms_heat_temp_compensation(chip->comm_topic);
-			if (bms_temp_compensation != 0 && chip->temperature < OPLUS_BMS_HEAT_THRE)
-				pval->intval = chip->temperature - bms_temp_compensation;
-			else
-				pval->intval = chip->temperature;
-		}
+		pval->intval = chip->temperature;
 		break;
 	case POWER_SUPPLY_PROP_TECHNOLOGY:
 		pval->intval = POWER_SUPPLY_TECHNOLOGY_LION;

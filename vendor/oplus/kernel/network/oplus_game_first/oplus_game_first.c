@@ -22,15 +22,11 @@
 #include <net/inet_connection_sock.h>
 #include <linux/ipv6.h>
 #include <net/ipv6.h>
-#ifdef TRACE_FUNC_ON
 #include <trace/hooks/ipv4.h>
 #include <trace/events/net.h>
-#endif
 #include <linux/netfilter.h>
 #include <linux/netfilter_ipv4.h>
 #include <linux/preempt.h>
-#include <linux/udp.h>
-#include <linux/spinlock.h>
 
 #define LOG_TAG "GAME_FIRST"
 #define LOGK(fmt, args...)	\
@@ -46,28 +42,20 @@
 #define DPI_ID_TMGP_SGAME_STREAM_GAME_DATA  0x10101
 #define GAME_SKB_PRIORITY 6
 #define GAME_THREAD_NAME "Apoll"
-#define MAX_GAME_STREAM 3
-#define GAME_SKB_MARK 0x10000000
 
-struct oplus_game_stream_info {
-	int game_tgid;
-	int game_pid;
-};
-
-static int s_game_stream_num = 0;
-static struct oplus_game_stream_info s_game_stream_info[MAX_GAME_STREAM];
 static int s_debug = 0;
 static int s_game_uid = 0;
 static int s_battle_flag = OPLUS_FALSE;
 static int s_game_alive = OPLUS_FALSE;
 static struct ctl_table_header *oplus_game_first_ctl_header = NULL;
 static int oplus_game_first_user_pid = 0;
+static int s_last_tgid = 0;
+static int s_last_pid = 0;
 static int s_tx_first = OPLUS_FALSE;
 static int s_rx_first = OPLUS_FALSE;
 static int s_test_tgid = 0;
 static int s_test_pid = 0;
 static int s_test_mode = 0;
-static spinlock_t s_game_stream_lock;
 
 enum oplus_game_first_msg_type_et {
 	OPLUS_GAME_FIRST_MSG_UNSPEC,
@@ -258,10 +246,8 @@ static void oplus_game_first_handle_battle_state(struct nlattr *nla)
 
 	if (s_battle_flag) {
 		s_game_alive = OPLUS_TRUE;
-		spin_lock_bh(&s_game_stream_lock);
-		s_game_stream_num = 0;
-		memset(s_game_stream_info, 0, sizeof(s_game_stream_info));
-		spin_unlock_bh(&s_game_stream_lock);
+		s_last_tgid = 0;
+		s_last_pid = 0;
 	}
 
 	return;
@@ -271,6 +257,8 @@ static void oplus_game_first_handle_game_exit(struct nlattr *nla)
 {
 	s_battle_flag = OPLUS_FALSE;
 	s_game_alive = OPLUS_FALSE;
+	s_last_tgid = 0;
+	s_last_pid = 0;
 }
 
 static int oplus_game_first_netlink_rcv_msg(struct sk_buff *skb, struct genl_info *info)
@@ -308,44 +296,6 @@ static int oplus_game_first_netlink_rcv_msg(struct sk_buff *skb, struct genl_inf
 	return ret;
 }
 
-static int judge_and_record_game_stream(struct task_struct *task, struct sk_buff *skb)
-{
-	int i;
-	int ret = OPLUS_FALSE;
-
-	if(task == NULL) {
-		return OPLUS_FALSE;
-	}
-
-	if (strnstr(task->comm, GAME_THREAD_NAME, 5) == 0) {
-		LOGK("task name not match, return,name=%s", task->comm);
-		return OPLUS_FALSE;
-	}
-
-	spin_lock_bh(&s_game_stream_lock);
-	for(i = 0; i < MAX_GAME_STREAM; i++) {
-		if (s_game_stream_info[i].game_tgid == 0 && s_game_stream_info[i].game_pid == 0) {
-			s_game_stream_info[i].game_tgid = task->tgid;
-			s_game_stream_info[i].game_pid = task->pid;
-			s_game_stream_num++;
-			printk("new game_stream:task=%s,tgid=%u,pid=%u,s_game_stream_num=%d,i=%d",
-				task->comm, task->tgid, task->pid, s_game_stream_num, i);
-			ret = OPLUS_TRUE;
-			goto out;
-		} else if (s_game_stream_info[i].game_tgid == task->tgid &&
-			s_game_stream_info[i].game_pid == task->pid) {
-			ret = OPLUS_FALSE;
-			goto out;
-		}
-	}
-
-	LOGK("warning, s_game_stream_num overflow:task=%s,tgid=%u,pid=%u,s_game_stream_num=%d,i=%d",
-				task->comm, task->tgid, task->pid, s_game_stream_num, i);
-out:
-	spin_unlock_bh(&s_game_stream_lock);
-	return ret;
-}
-
 #ifdef TRACE_FUNC_ON
 static void oplus_game_first_udp_recvmsg(void *data, struct sock *sk)
 {
@@ -356,8 +306,8 @@ static void oplus_game_first_udp_recvmsg(void *data, struct sock *sk)
 			game_thread_info.uid = s_game_uid;
 			game_thread_info.tgid = s_test_tgid;
 			game_thread_info.pid = s_test_pid;
-			LOGK("s_test_mode:uid=%u,tgid=%u,pid=%u",
-				s_game_uid, s_test_tgid, s_test_pid);
+			LOGK("s_test_mode,uid=%u,tgid=%u,pid=%u,s_last_tgid=%d,s_last_pid=%d",
+				s_game_uid, s_test_tgid, s_test_pid, s_last_tgid, s_last_tgid);
 			oplus_game_first_send_netlink_msg(OPLUS_GAME_FIRST_MSG_REPORT_THREAD_INFO, (char*)&game_thread_info, sizeof(game_thread_info));
 		}
 
@@ -379,13 +329,22 @@ static void oplus_game_first_udp_recvmsg(void *data, struct sock *sk)
 #ifdef CONFIG_ANDROID_VENDOR_OEM_DATA
 	if (sk->android_oem_data1 == DPI_ID_TMGP_SGAME_STREAM_GAME_DATA) {
 		struct task_struct *task = current;
+		if(task == NULL) {
+			return;
+		}
 
-
-		if (judge_and_record_game_stream(task, NULL)) {
+		if (!s_last_tgid && !s_last_pid) {
+			LOGK("udp_msg hook:task=%s,tgid=%u,pid=%u,s_last_tgid=%d,s_last_pid=%d",
+				task->comm, task->tgid, task->pid, s_last_tgid, s_last_tgid);
 			game_thread_info.uid = s_game_uid;
 			game_thread_info.tgid = task->tgid;
 			game_thread_info.pid = task->pid;
+			s_last_tgid = task->tgid;
+			s_last_pid = task->pid;
 			oplus_game_first_send_netlink_msg(OPLUS_GAME_FIRST_MSG_REPORT_THREAD_INFO, (char*)&game_thread_info, sizeof(game_thread_info));
+		} else if ((s_last_tgid != task->tgid) || (s_last_pid != task->pid)) {
+			LOGK("warning:udp_msg hook tgid=%u,pid=%u,s_last_tgid=%d,s_last_pid=%d",
+				task->tgid, task->pid, s_last_tgid, s_last_pid);
 		}
 	}
 #endif
@@ -438,10 +397,9 @@ static void oplus_game_first_net_dev_queue(void *data, struct sk_buff *skb) {
 	#ifdef CONFIG_ANDROID_VENDOR_OEM_DATA
 	if (s_tx_first && (sk->android_oem_data1 == DPI_ID_TMGP_SGAME_STREAM_GAME_DATA)) {
 	#else
-	if (s_tx_first && s_game_uid && (sk->sk_uid.val == s_game_uid)) {
+	if (s_tx_first && (!(s_game_uid)) && (sk->sk_uid.val == s_game_uid)) {
 	#endif
-		/*skb->priority = GAME_SKB_PRIORITY;*/
-		skb->mark |= GAME_SKB_MARK;
+		skb->priority = GAME_SKB_PRIORITY;
 	}
 }
 #endif
@@ -484,11 +442,9 @@ static unsigned int oplus_tx_class_postrouting_hook(void *priv, struct sk_buff *
 	#ifdef CONFIG_ANDROID_VENDOR_OEM_DATA
 	if (s_tx_first && (sk->android_oem_data1 == DPI_ID_TMGP_SGAME_STREAM_GAME_DATA)) {
 	#else
-	if (s_tx_first && s_game_uid && (sk->sk_uid.val == s_game_uid)) {
+	if (s_tx_first && (!s_game_uid) && (sk->sk_uid.val == s_game_uid)) {
 	#endif
-		/*skb->priority = GAME_SKB_PRIORITY;*/
-		skb->mark |= GAME_SKB_MARK;
-		LOGK("s_tx_first=%d,s_game_uid=%d,skb->mark=0x%x", s_tx_first, s_game_uid, skb->mark);
+		skb->priority = GAME_SKB_PRIORITY;
 	}
 
 	return NF_ACCEPT;
@@ -508,8 +464,8 @@ static unsigned int oplus_rx_thread_info_output_hook(void *priv, struct sk_buff 
 			game_thread_info.uid = s_game_uid;
 			game_thread_info.tgid = s_test_tgid;
 			game_thread_info.pid = s_test_pid;
-			LOGK("s_test_mode,uid=%u,tgid=%u,pid=%u",
-				s_game_uid, s_test_tgid, s_test_pid);
+			LOGK("s_test_mode,uid=%u,tgid=%u,pid=%u,s_last_tgid=%d,s_last_pid=%d",
+				s_game_uid, s_test_tgid, s_test_pid, s_last_tgid, s_last_tgid);
 			oplus_game_first_send_netlink_msg(OPLUS_GAME_FIRST_MSG_REPORT_THREAD_INFO, (char*)&game_thread_info, sizeof(game_thread_info));
 		}
 
@@ -524,12 +480,30 @@ static unsigned int oplus_rx_thread_info_output_hook(void *priv, struct sk_buff 
 		#ifdef CONFIG_ANDROID_VENDOR_OEM_DATA
 		if (sk->android_oem_data1 == DPI_ID_TMGP_SGAME_STREAM_GAME_DATA) {
 			struct task_struct *task = current;
+			if(task == NULL) {
+				return NF_ACCEPT;
+			}
 
-			if (judge_and_record_game_stream(task, skb)) {
+			if (strnstr(task->comm, GAME_THREAD_NAME, 5) == 0) {
+				LOGK("task name not match, return");
+				return NF_ACCEPT;
+			}
+
+			if (!s_last_tgid && !s_last_pid) {
+				LOGK("output hook:task=%s,tgid=%u,pid=%u,s_last_tgid=%d,s_last_pid=%d",
+					task->comm, task->tgid, task->pid, s_last_tgid, s_last_tgid);
+
 				game_thread_info.uid = s_game_uid;
 				game_thread_info.tgid = task->tgid;
 				game_thread_info.pid = task->pid;
+				s_last_tgid = task->tgid;
+				s_last_pid = task->pid;
 				oplus_game_first_send_netlink_msg(OPLUS_GAME_FIRST_MSG_REPORT_THREAD_INFO, (char*)&game_thread_info, sizeof(game_thread_info));
+			} else if ((s_last_tgid != task->tgid) || (s_last_pid != task->pid)) {
+				LOGK("warning:output hook:task=%s,tgid=%u,pid=%u,s_last_tgid=%d,s_last_pid=%d",
+					task->comm, task->tgid, task->pid, s_last_tgid, s_last_pid);
+				s_last_tgid = task->tgid;
+				s_last_pid = task->pid;
 			}
 		}
 		#endif
@@ -595,7 +569,6 @@ static int __init oplus_game_first_init(void)
 		return ret;
 	}
 
-	spin_lock_init(&s_game_stream_lock);
 	printk("[GAME_FIRST]:oplus_game_first_init, success");
 	return 0;
 }

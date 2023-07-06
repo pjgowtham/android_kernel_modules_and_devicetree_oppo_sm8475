@@ -16,8 +16,7 @@ enum {
 	SY6970,
 	SY6974B,
 	SGM41511,
-	SGM41512,
-	SC6607
+	SGM41512
 };
 
 extern void set_charger_ic(int sel);

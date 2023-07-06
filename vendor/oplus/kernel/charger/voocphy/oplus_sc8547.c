@@ -994,7 +994,7 @@ static int sc8547_reset_voocphy(struct oplus_voocphy_manager *chip)
 	sc8547_write_word(chip->client, SC8547_REG_31, 0x0);
 
 	/* mask insert irq */
-	sc8547_write_byte(chip->client, SC8547_REG_10, 0x02);
+	sc8547_write_word(chip->client, SC8547_REG_10, 0x02);
 	pr_info ("oplus_vooc_reset_voocphy done");
 
 	return VOOCPHY_SUCCESS;

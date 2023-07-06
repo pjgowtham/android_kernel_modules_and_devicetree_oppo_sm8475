@@ -397,21 +397,6 @@ enum {
 	PD_PPS_ACTIVE,
 };
 
-#if IS_ENABLED(CONFIG_OPLUS_CHG_TEST_KIT)
-enum cc_mode_type {
-	MODE_DEFAULT = 0,
-	MODE_SINK,
-	MODE_SRC,
-	MODE_DRP
-};
-enum situations_type {
-	SITUATION_DEFAULT = 0,
-	SITUATION_IDLE,
-	SITUATION_OTG,
-	SITUATION_CHARGING
-};
-#endif /* CONFIG_OPLUS_CHG_TEST_KIT */
-
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0))
 enum oplus_power_supply_type {
 	POWER_SUPPLY_TYPE_USB_HVDCP = 13,		/* High Voltage DCP */
@@ -454,12 +439,6 @@ typedef enum {
 	CHG_STOP_VOTER__VBAT_OVP = (1 << 5),
 	CHG_STOP_VOTER_BAD_VOL_DIFF = (1 << 6),
 } OPLUS_CHG_STOP_VOTER;
-
-typedef enum {
-	CHG_CYCLE_VOTER__NONE		= 0,
-	CHG_CYCLE_VOTER__ENGINEER	= (1 << 0),
-	CHG_CYCLE_VOTER__USER		= (1 << 1),
-}OPLUS_CHG_CYCLE_VOTER;
 
 typedef enum {
 	CHARGER_STATUS__GOOD,
@@ -949,6 +928,7 @@ struct oplus_chg_full_data {
 	int clear_full_check_count;
 };
 
+struct reserve_soc_data {
 #define SMOOTH_SOC_MAX_FIFO_LEN	4
 #define SMOOTH_SOC_MIN_FIFO_LEN	1
 #define RESERVE_SOC_MIN		1
@@ -956,16 +936,20 @@ struct oplus_chg_full_data {
 #define RESERVE_SOC_MAX		5
 #define RESERVE_SOC_OFF		0
 #define OPLUS_FULL_SOC		100
-#define SOC_JUMP_RANGE_VAL	1
-struct reserve_soc_data {
+#define OPLUS_FULL_CNT		36 /* 180S/5 */
+
 	bool smooth_switch_v2;
-	bool is_soc_jump_range;
+	int reserve_chg_soc;
+	int reserve_dis_soc;
 	int reserve_soc;
-	int rus_reserve_soc;
+	int rus_chg_soc;
+	int rus_dis_soc;
 
 	int smooth_soc_fifo[SMOOTH_SOC_MAX_FIFO_LEN];
 	int smooth_soc_index;
 	int smooth_soc_avg_cnt;
+	int soc_jump_array[RESERVE_SOC_MAX];
+	bool is_soc_jump_range;
 };
 
 typedef enum {
@@ -1335,6 +1319,7 @@ struct oplus_chg_chip {
 	int quick_mode_stop_cap;
 	int quick_mode_stop_temp;
 	int quick_mode_stop_soc;
+	int quick_mode_need_update;
 	bool quick_mode_gain_support;
 	bool dual_panel_support;
 
@@ -1422,7 +1407,6 @@ struct oplus_chg_chip {
 	int usb_present_vbus0_count;
 
 	int bms_heat_temp_compensation;
-	int chg_cycle_status;
 };
 
 #define SOFT_REST_VOL_THRESHOLD		4300
@@ -1544,10 +1528,6 @@ struct oplus_chg_operations {
 	int (*get_subboard_temp)(void);
 	int (*get_ccdetect_online)(void);
 	int (*check_cc_mode)(void);
-	void (*set_prswap)(bool);
-	int (*check_chg_plugin)(void);
-	int (*get_cp_tsbus)(void);
-	int (*get_cp_tsbat)(void);
 };
 
 int __attribute__((weak))

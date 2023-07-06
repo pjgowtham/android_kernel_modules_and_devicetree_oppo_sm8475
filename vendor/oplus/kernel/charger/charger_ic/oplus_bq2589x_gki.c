@@ -3690,7 +3690,6 @@ static int pd_tcp_notifier_call(struct notifier_block *nb,
 				cancel_delayed_work_sync(&bq->bq2589x_aicr_setting_work);
 				cancel_delayed_work_sync(&bq->bq2589x_hvdcp_bc12_work);
 				oplus_chg_wake_update_work();
-                                oplus_chg_wakelock(bq, false);
 				chg_info("usb real remove vooc fastchg clear flag!\n");
 			}
 		}

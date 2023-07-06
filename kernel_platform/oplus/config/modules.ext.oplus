@@ -10,6 +10,7 @@
 ../vendor/oplus/kernel/wifi/oplus_connectivity_sla
 ../vendor/oplus/kernel/wifi/oplus_connectivity_routerboost
 ../vendor/oplus/kernel/wifi/oplus_wificapcenter
+../vendor/oplus/kernel/cpu/sched/healthinfo
 ../vendor/oplus/kernel/cpu/sched/task_load
 ../vendor/oplus/kernel/cpu/sched/task_cpustats
 ../vendor/oplus/kernel/cpu/detection

@@ -7,6 +7,15 @@
 #ifndef _SCHED_ASSIST_LOCKING_H_
 #define _SCHED_ASSIST_LOCKING_H_
 
+#include <linux/sched.h>
+#include <linux/list.h>
+#include <linux/types.h>
+#include <linux/atomic.h>
+#include <linux/hashtable.h>
+#if IS_ENABLED(CONFIG_SCHED_WALT)
+#include <linux/sched/walt.h>
+#endif
+
 void oplus_replace_locking_task_fair(struct rq *rq,
 		struct task_struct **p, struct sched_entity **se, bool *repick);
 void dequeue_locking_thread(struct rq *rq, struct task_struct *p);

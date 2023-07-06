@@ -29,15 +29,11 @@
 #include <oplus_strategy.h>
 #include <oplus_chg_vooc.h>
 #include <oplus_chg_wired.h>
-#if IS_ENABLED(CONFIG_OPLUS_DYNAMIC_CONFIG_CHARGER)
-#include "oplus_cfg.h"
-#endif
 
 #define PDQC_CONFIG_WAIT_TIME_MS	15000
 #define WIRED_COOL_DOWN_LEVEL_MAX	8
 #define FACTORY_MODE_PDQC_9V_THR	4100
 #define PDQC_BUCK_DEF_CURR_MA		500
-#define PDQC_BUCK_VBUS_THR		7500
 
 struct oplus_wired_spec_config {
 	int32_t pd_iclmax_ma;
@@ -135,11 +131,6 @@ struct oplus_chg_wired {
 	unsigned int err_code;
 	struct mutex icl_lock;
 	struct mutex current_lock;
-
-#if IS_ENABLED(CONFIG_OPLUS_DYNAMIC_CONFIG_CHARGER)
-	struct oplus_cfg spec_debug_cfg;
-	struct oplus_cfg normal_debug_cfg;
-#endif
 };
 
 /* default parameters used when dts is not configured */
@@ -308,7 +299,7 @@ static int oplus_wired_set_err_code(struct oplus_chg_wired *chip,
 		return 0;
 
 	chip->err_code = err_code;
-	chg_info("set err_code=%08x\n", err_code);
+	pr_info("set err_code=%08x\n", err_code);
 
 	if (err_code & (BIT(OPLUS_ERR_CODE_OVP) | BIT(OPLUS_ERR_CODE_UVP)))
 		vote(chip->input_suspend_votable, UOVP_VOTER, true, 1, false);
@@ -512,15 +503,12 @@ static int oplus_wired_current_set(struct oplus_chg_wired *chip,
 	else
 		vote(chip->icl_votable, COOL_DOWN_VOTER, false, 0, true);
 
-	if (led_on) {
-		if (chip->chg_type == OPLUS_CHG_USB_TYPE_VOOC)
-			vote(chip->fcc_votable, LED_ON_VOTER, false, 0, false);
-		else
-			vote(chip->fcc_votable, LED_ON_VOTER, true,
-			     spec->led_on_fcc_max_ma[chip->temp_region], false);
-	} else {
+	if (led_on)
+		vote(chip->fcc_votable, LED_ON_VOTER, true,
+		     spec->led_on_fcc_max_ma[chip->temp_region], false);
+	else
 		vote(chip->fcc_votable, LED_ON_VOTER, false, 0, false);
-	}
+
 	icl_changed = (icl_tmp_ma != get_effective_result(chip->icl_votable));
 	chg_info("vbus_changed=%s, icl_changed=%s\n",
 		 true_or_false_str(vbus_changed),
@@ -593,7 +581,6 @@ static void oplus_wired_qc_config_work(struct work_struct *work)
 		cool_down_vol = 0;
 	}
 
-	chip->vbus_mv = oplus_wired_get_vbus();
 	switch (chip->qc_action) {
 	case OPLUS_ACTION_BOOST:
 		if (cool_down_vol > 0 && cool_down_vol < 9000) {
@@ -601,12 +588,6 @@ static void oplus_wired_qc_config_work(struct work_struct *work)
 			chip->qc_action = OPLUS_ACTION_NULL;
 			goto set_curr;
 		}
-
-		if (chip->vbus_mv > PDQC_BUCK_VBUS_THR) {
-			chg_info("vbus_mv = %d mv, not need to boost.\n", chip->vbus_mv);
-			goto set_curr;
-		}
-
 		if (spec->vbatt_pdqc_to_9v_thr > 0 &&
 		    chip->vbat_mv < spec->vbatt_pdqc_to_9v_thr) {
 			chg_info("qc starts to boost\n");
@@ -627,12 +608,6 @@ static void oplus_wired_qc_config_work(struct work_struct *work)
 		break;
 	case OPLUS_ACTION_BUCK:
 		chg_info("qc starts to buck\n");
-		if (chip->vbus_mv <= PDQC_BUCK_VBUS_THR) {
-			chg_info("vbus_mv = %d mv, not need to buck.\n", chip->vbus_mv);
-			chip->qc_action = OPLUS_ACTION_NULL;
-			goto set_curr;
-		}
-
 		/* Set the current to 500ma before stepping down */
 		vote(chip->icl_votable, SPEC_VOTER, true, PDQC_BUCK_DEF_CURR_MA,
 		     true);
@@ -699,7 +674,7 @@ static int oplus_wired_get_afi_condition(void)
 	if (!rc)
 		afi_condition = data.intval;
 
-	chg_info("get afi condition = %d\n", afi_condition);
+	pr_err("%s, get afi condition = %d\n", __func__, afi_condition);
 	return afi_condition;
 }
 
@@ -714,7 +689,6 @@ static void oplus_wired_pd_config_work(struct work_struct *work)
 	int vbus_set_mv = 5000; /* vbus default setting voltage is 5V */
 	bool vbus_changed = false;
 	int rc;
-	int vbus_get_mv = 0;
 
 #define OPLUS_PD_5V_PDO 0x31912c
 #define OPLUS_PD_9V_PDO 0x32d12c
@@ -733,8 +707,6 @@ static void oplus_wired_pd_config_work(struct work_struct *work)
 		cool_down_vol = 0;
 	}
 
-	chip->vbus_mv = oplus_wired_get_vbus();
-
 	switch (chip->pd_action) {
 	case OPLUS_ACTION_BOOST:
 		if (is_pd_svooc_votable_available(chip) &&
@@ -743,7 +715,6 @@ static void oplus_wired_pd_config_work(struct work_struct *work)
 			chip->pd_action = OPLUS_ACTION_NULL;
 			goto set_curr;
 		}
-
 		if (chip->pd_boost_disable) {
 			chg_info("pd boost is disable\n");
 			chip->pd_action = OPLUS_ACTION_NULL;
@@ -756,12 +727,11 @@ static void oplus_wired_pd_config_work(struct work_struct *work)
 		}
 		if (spec->vbatt_pdqc_to_9v_thr > 0 &&
 		    chip->vbat_mv < spec->vbatt_pdqc_to_9v_thr) {
-			chg_info("pd starts to boost,retry count %d.\n", chip->pd_retry_count);
+			chg_info("pd starts to boost\n");
 			mutex_lock(&chip->icl_lock);
 			rc = oplus_wired_set_pd_config(OPLUS_PD_9V_PDO);
 			mutex_unlock(&chip->icl_lock);
-			vbus_get_mv = oplus_wired_get_vbus();
-			if (rc < 0 || vbus_get_mv < 7500) {
+			if (rc < 0) {
 				if (chip->pd_retry_count < PD_RETRY_COUNT_MAX) {
 					chip->pd_retry_count++;
 					schedule_delayed_work(
@@ -787,11 +757,6 @@ static void oplus_wired_pd_config_work(struct work_struct *work)
 		break;
 	case OPLUS_ACTION_BUCK:
 		chg_info("pd starts to buck\n");
-		if (chip->vbus_mv <= PDQC_BUCK_VBUS_THR) {
-			chg_info("vbus_mv = %d mv, not need to buck.\n", chip->vbus_mv);
-			goto set_curr;
-		}
-
 		/* Set the current to 500ma before stepping down */
 		vote(chip->icl_votable, SPEC_VOTER, true, PDQC_BUCK_DEF_CURR_MA,
 		     true);
@@ -842,7 +807,7 @@ set_curr:
 	oplus_wired_current_set(chip, vbus_changed);
 }
 
-static void oplus_wired_strategy_update(struct oplus_chg_wired *chip)
+static void oplsu_wired_strategy_update(struct oplus_chg_wired *chip)
 {
 	struct oplus_chg_strategy *strategy;
 	int tmp;
@@ -916,7 +881,7 @@ static void oplus_wired_gauge_update_work(struct work_struct *work)
 	if (oplus_wired_get_afi_condition())
 		oplus_gauge_protect_check();
 
-	oplus_wired_strategy_update(chip);
+	oplsu_wired_strategy_update(chip);
 	oplus_wired_vbus_check(chip);
 	if (!chip->vooc_started)
 		oplus_wired_kick_wdt(chip->wired_topic);
@@ -1148,10 +1113,7 @@ static void oplus_wired_chg_type_change_work(struct work_struct *work)
 	chip->chg_type = oplus_wired_get_chg_type();
 	if (chip->chg_type < 0)
 		chip->chg_type = OPLUS_CHG_USB_TYPE_UNKNOWN;
-	chg_info("chg_type = %d, chg_online = %d\n", chip->chg_type, chip->chg_online);
-
-	if (!chip->chg_online)
-		return;
+	chg_info("chg_type = %d\n", chip->chg_type);
 
 	switch (chip->chg_type) {
 	case OPLUS_CHG_USB_TYPE_QC2:
@@ -1269,7 +1231,8 @@ static void oplus_wired_comm_subs_callback(struct mms_subscribe *subs,
 			rc = oplus_mms_get_item_data(chip->comm_topic, id,
 						     &data, false);
 			if (rc < 0)
-				chg_err("can't get charging disable status, rc=%d", rc);
+				pr_err("can't get charging disable status, rc=%d",
+				       rc);
 			else
 				vote(chip->output_suspend_votable, USER_VOTER,
 				     !!data.intval, data.intval, false);
@@ -1278,7 +1241,8 @@ static void oplus_wired_comm_subs_callback(struct mms_subscribe *subs,
 			rc = oplus_mms_get_item_data(chip->comm_topic, id,
 						     &data, false);
 			if (rc < 0)
-				chg_err("can't get charge suspend status, rc=%d", rc);
+				pr_err("can't get charge suspend status, rc=%d",
+				       rc);
 			else
 				vote(chip->input_suspend_votable, USER_VOTER,
 				     !!data.intval, data.intval, false);
@@ -1356,21 +1320,21 @@ static void oplus_wired_subscribe_comm_topic(struct oplus_mms *topic,
 	rc = oplus_mms_get_item_data(chip->comm_topic,
 				     COMM_ITEM_CHARGING_DISABLE, &data, true);
 	if (rc < 0)
-		chg_err("can't get charging disable status, rc=%d", rc);
+		pr_err("can't get charging disable status, rc=%d", rc);
 	else
 		vote(chip->output_suspend_votable, USER_VOTER, !!data.intval,
 		     data.intval, false);
 	rc = oplus_mms_get_item_data(chip->comm_topic, COMM_ITEM_CHARGE_SUSPEND,
 				     &data, true);
 	if (rc < 0)
-		chg_err("can't get charge suspend status, rc=%d", rc);
+		pr_err("can't get charge suspend status, rc=%d", rc);
 	else
 		vote(chip->input_suspend_votable, USER_VOTER, !!data.intval,
 		     data.intval, false);
 	rc = oplus_mms_get_item_data(chip->comm_topic, COMM_ITEM_UNWAKELOCK,
 				     &data, true);
 	if (rc < 0) {
-		chg_err("can't get unwakelock_chg status, rc=%d", rc);
+		pr_err("can't get unwakelock_chg status, rc=%d", rc);
 		chip->unwakelock_chg = false;
 	} else {
 		chip->unwakelock_chg = data.intval;
@@ -1450,7 +1414,7 @@ static int oplus_wired_icl_vote_callback(struct votable *votable, void *data,
 	if (icl_ma < 0)
 		return 0;
 
-	chg_info("icl vote clent %s, icl_ma = %d\n", client, icl_ma);
+	chg_info("icl vote clent %s\n", client);
 	mutex_lock(&chip->icl_lock);
 	if (chip->chg_mode == OPLUS_WIRED_CHG_MODE_VOOC && chip->vooc_started)
 		rc = oplus_wired_set_icl_by_vooc(chip->wired_topic, icl_ma);
@@ -1815,21 +1779,19 @@ static int oplus_wired_parse_dt(struct oplus_chg_wired *chip)
 static int oplus_wired_strategy_init(struct oplus_chg_wired *chip)
 {
 	struct oplus_wired_config *config = &chip->config;
+	int boot_mode = get_boot_mode();
 
-	chip->vooc_strategy = oplus_chg_strategy_alloc(
-		config->vooc_strategy_name, config->vooc_strategy_data,
-		config->vooc_strategy_data_size);
-	if (chip->vooc_strategy == NULL)
-		chg_err("vooc strategy alloc error");
-	devm_kfree(chip->dev, chip->config.vooc_strategy_data);
-	chip->config.vooc_strategy_data = NULL;
+	if (boot_mode == MSM_BOOT_MODE__CHARGE) {
+		/* just use in poweroff charge mode */
+		chip->vooc_strategy = oplus_chg_strategy_alloc(
+			config->vooc_strategy_name, config->vooc_strategy_data,
+			config->vooc_strategy_data_size);
+		if (chip->vooc_strategy == NULL)
+			chg_err("vooc strategy alloc error");
+	}
 
 	return 0;
 }
-
-#if IS_ENABLED(CONFIG_OPLUS_DYNAMIC_CONFIG_CHARGER)
-#include "config/dynamic_cfg/oplus_wired_cfg.c"
-#endif
 
 static int oplus_wired_probe(struct platform_device *pdev)
 {
@@ -1888,10 +1850,6 @@ static int oplus_wired_probe(struct platform_device *pdev)
 	oplus_mms_wait_topic("common", oplus_wired_subscribe_comm_topic, chip);
 	oplus_mms_wait_topic("vooc", oplus_wired_subscribe_vooc_topic, chip);
 
-#if IS_ENABLED(CONFIG_OPLUS_DYNAMIC_CONFIG_CHARGER)
-	(void)oplus_wired_reg_debug_config(chip);
-#endif
-
 	chg_info("probe success\n");
 	return 0;
 
@@ -1915,9 +1873,6 @@ static int oplus_wired_remove(struct platform_device *pdev)
 {
 	struct oplus_chg_wired *chip = platform_get_drvdata(pdev);
 
-#if IS_ENABLED(CONFIG_OPLUS_DYNAMIC_CONFIG_CHARGER)
-	oplus_wired_unreg_debug_config(chip);
-#endif
 	if (!IS_ERR_OR_NULL(chip->comm_subs))
 		oplus_mms_unsubscribe(chip->comm_subs);
 	if (!IS_ERR_OR_NULL(chip->wired_subs))

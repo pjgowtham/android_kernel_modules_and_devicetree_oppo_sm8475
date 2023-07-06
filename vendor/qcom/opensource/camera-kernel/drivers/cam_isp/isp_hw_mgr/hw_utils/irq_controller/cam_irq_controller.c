@@ -13,9 +13,6 @@
 #include "cam_debug_util.h"
 #include "cam_common_util.h"
 
-#define CAM_IRQ_MAX_DEPENDENTS 9
-#define CAM_IRQ_CTRL_NAME_LEN 16
-
 /**
  * struct cam_irq_evt_handler:
  * @Brief:                  Event handler information
@@ -109,7 +106,7 @@ struct cam_irq_register_obj {
  *                          and spinlock in regular case
  */
 struct cam_irq_controller {
-	char                            name[CAM_IRQ_CTRL_NAME_LEN];
+	const char                     *name;
 	void __iomem                   *mem_base;
 	uint32_t                        num_registers;
 	struct cam_irq_register_obj    *irq_register_arr;
@@ -310,7 +307,7 @@ int cam_irq_controller_deinit(void **irq_controller)
 	struct cam_irq_evt_handler *evt_handler = NULL;
 
 	if (!controller) {
-		CAM_DBG(CAM_IRQ_CTRL, "IRQ controller = NULL. Is this intentional?");
+		CAM_ERR(CAM_IRQ_CTRL, "Null Pointer");
 		return -EINVAL;
 	}
 
@@ -380,7 +377,7 @@ int cam_irq_controller_init(const char       *name,
 		goto evt_mask_alloc_error;
 	}
 
-	strlcpy(controller->name, name, CAM_IRQ_CTRL_NAME_LEN);
+	controller->name = name;
 
 	CAM_DBG(CAM_IRQ_CTRL, "num_registers: %d",
 		register_info->num_registers);

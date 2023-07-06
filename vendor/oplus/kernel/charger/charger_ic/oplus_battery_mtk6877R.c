@@ -81,7 +81,6 @@
 #include "../oplus_pps.h"
 #include <tcpm.h>
 
-#define DEFAULT_BATTERY_TMP_WHEN_ERROR	-400
 static bool em_mode = false;
 static bool is_vooc_project(void);
 struct oplus_chg_chip *g_oplus_chip = NULL;
@@ -2610,14 +2609,6 @@ static int mtk_charger_parse_dt(struct charger_manager *info,
 					MAX_CHARGE_TEMP_MINUS_X_DEGREE;
 	}
 
-	if (of_property_read_u32(np, "qcom,sub_board_pull_up_r", &val) >= 0) {
-		g_oplus_chip->chgic_mtk.sub_board_pull_up_r = val;
-	} else {
-		chr_err("use default sub_board_pull_up_r:%d\n",
-			SUB_BOARD_PULL_UP_R);
-		g_oplus_chip->chgic_mtk.sub_board_pull_up_r = SUB_BOARD_PULL_UP_R;
-	}
-
 	/* PE */
 	info->data.ta_12v_support = of_property_read_bool(np, "ta_12v_support");
 	info->data.ta_9v_support = of_property_read_bool(np, "ta_9v_support");
@@ -4678,10 +4669,8 @@ static int oplus_usb_switch_gpio_gpio_init(void)
 		return -EINVAL;
 	}
 
-	mutex_lock(&chip->normalchg_gpio.pinctrl_mutex);
 	pinctrl_select_state(chip->normalchg_gpio.pinctrl,
 			chip->normalchg_gpio.charger_gpio_as_output1);
-	mutex_unlock(&chip->normalchg_gpio.pinctrl_mutex);
 
 	return 0;
 }
@@ -5588,9 +5577,6 @@ static int oplus_get_temp_volt(struct ntc_temp *ntc_param)
 	sub_temp_volt = sub_temp_volt * 1500 / 4096;
 	sub_temp_volt_pre = sub_temp_volt;
 #else
-	if (sub_temp_volt > ntc_param->i_rap_pull_up_voltage) {
-		sub_temp_volt = sub_temp_volt / 1000;
-	}
 	sub_temp_volt_pre = sub_temp_volt;
 #endif
 subboardtemp_next:
@@ -5666,7 +5652,7 @@ int oplus_force_get_subboard_temp(void)
 	static bool is_param_init = false;
 	static struct ntc_temp ntc_param = {0};
 
-	if (!pinfo || !pinfo->subboard_temp_chan) {
+	if (!pinfo) {
 		chg_err("null pinfo\n");
 		return TEMP_25C;
 	}
@@ -5674,7 +5660,7 @@ int oplus_force_get_subboard_temp(void)
 	if (!is_param_init) {
 		ntc_param.e_ntc_type = NTC_SUB_BOARD;
 		ntc_param.i_tap_over_critical_low = 4397119;
-		ntc_param.i_rap_pull_up_r = g_oplus_chip->chgic_mtk.sub_board_pull_up_r;
+		ntc_param.i_rap_pull_up_r = 200000;
 		ntc_param.i_rap_pull_up_voltage = 1800;
 		ntc_param.i_tap_min = -400;
 		ntc_param.i_tap_max = 1250;
@@ -5927,27 +5913,13 @@ static int mt_ac_get_property(struct power_supply *psy,
 	int rc = 0;
 
 	rc = oplus_ac_get_property(psy, psp, val);
-	if (rc < 0) {
-		val->intval = 0;
-	}
-
 	return rc;
 }
 
 static int mt_usb_get_property(struct power_supply *psy,
 	enum power_supply_property psp, union power_supply_propval *val)
 {
-	int rc = 0;
-
-	switch (psp) {
-	default:
-		rc = oplus_usb_get_property(psy, psp, val);
-		if (rc < 0) {
-			val->intval = 0;
-		}
-	}
-
-	return rc;
+	return oplus_usb_get_property(psy, psp, val);
 }
 
 static int battery_prop_is_writeable(struct power_supply *psy,
@@ -5968,30 +5940,24 @@ static int battery_get_property(struct power_supply *psy,
 	int rc = 0;
 
 	switch (psp) {
-	case POWER_SUPPLY_PROP_CAPACITY_LEVEL:
-		val->intval = POWER_SUPPLY_CAPACITY_LEVEL_NORMAL;
-		if (g_oplus_chip && (g_oplus_chip->ui_soc == 0)) {
-			val->intval = POWER_SUPPLY_CAPACITY_LEVEL_CRITICAL;
-				chg_err("bat pro POWER_SUPPLY_CAPACITY_LEVEL_CRITICAL, should shutdown!!!\n");
+		case POWER_SUPPLY_PROP_CAPACITY_LEVEL:
+			val->intval = POWER_SUPPLY_CAPACITY_LEVEL_NORMAL;
+			if (g_oplus_chip && (g_oplus_chip->ui_soc == 0)) {
+				val->intval = POWER_SUPPLY_CAPACITY_LEVEL_CRITICAL;
+					chg_err("bat pro POWER_SUPPLY_CAPACITY_LEVEL_CRITICAL, should shutdown!!!\n");
+				}
+			break;
+		case POWER_SUPPLY_PROP_CHARGE_FULL_DESIGN:
+			if (g_oplus_chip) {
+				val->intval = g_oplus_chip->batt_fcc * 1000;
 			}
-		break;
-	case POWER_SUPPLY_PROP_CHARGE_FULL_DESIGN:
-		if (g_oplus_chip) {
-			val->intval = g_oplus_chip->batt_fcc * 1000;
-		}
-		break;
-	case POWER_SUPPLY_PROP_TIME_TO_FULL_NOW:
-		val->intval = 0;
-		break;
-	default:
-		rc = oplus_battery_get_property(psy, psp, val);
-		if (rc < 0) {
-			if (psp == POWER_SUPPLY_PROP_TEMP)
-				val->intval = DEFAULT_BATTERY_TMP_WHEN_ERROR;
-			else
-				val->intval = 0;
-		}
-		break;
+			break;
+		case POWER_SUPPLY_PROP_TIME_TO_FULL_NOW:
+			val->intval = 0;
+			break;
+		default:
+			rc = oplus_battery_get_property(psy, psp, val);
+			break;
 	}
 
 	return 0;
@@ -6167,19 +6133,6 @@ int oplus_chg_get_pd_type(void)
 	return PD_INACTIVE;
 }
 EXPORT_SYMBOL(oplus_chg_get_pd_type);
-
-int oplus_check_cc_mode(void) {
-	const char *tcpc_name = "type_c_port0";
-	struct tcpc_device *tcpc_dev;
-
-	tcpc_dev = tcpc_dev_get_by_name(tcpc_name);
-	if (IS_ERR_OR_NULL(tcpc_dev)) {
-		chg_err("tcpc info error\n");
-		return -EINVAL;
-	}
-
-	return tcpm_inquire_typec_role(tcpc_dev);
-}
 
 int oplus_mt6360_pd_setup_forsvooc(void)
 {
@@ -7085,7 +7038,6 @@ struct oplus_chg_operations  mtk6360_chg_ops = {
 	.oplus_usbtemp_monitor_condition = oplus_usbtemp_condition,
 	.check_qchv_condition = oplus_chg_check_qchv_condition,
 	.get_subboard_temp = oplus_force_get_subboard_temp,
-	.check_cc_mode = oplus_check_cc_mode,
 };
 //====================================================================//
 EXPORT_SYMBOL(oplus_set_typec_sinkonly);
@@ -8032,9 +7984,6 @@ static int mtk_charger_remove(struct platform_device *dev)
 	struct charger_manager *info = platform_get_drvdata(dev);
 
 	mtk_pe50_deinit(info);
-#if IS_ENABLED(CONFIG_OPLUS_CHG_TEST_KIT)
-	oplus_test_kit_unregister();
-#endif
 	return 0;
 }
 

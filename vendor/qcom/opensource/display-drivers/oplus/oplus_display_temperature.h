@@ -43,21 +43,14 @@ enum oplus_display_temp_index {
 
 struct oplus_display_temp {
 	struct iio_channel *ntc_temp_chan;
-	struct workqueue_struct *oplus_compensation_set_wq;		/* a workqueue used to send compensation set */
-	struct work_struct oplus_compensation_set_work;			/* a work struct used to send compensation set */
-	int cmd_delay;
-	bool compensation_enable;
 	int ntc_temp;
 	int shell_temp;
 	bool fake_ntc_temp;
 	bool fake_shell_temp;
-	bool tc_dry_run;
 };
 
 /* ntc temp */
-void oplus_compensation_set_work_handler(struct work_struct *work_item);
-int oplus_display_change_compensation_params_ref_reg(void *dsi_display);
-int oplus_display_register_ntc_channel(void *dsi_display);
+int oplus_display_register_ntc_channel(void *device);
 int oplus_display_get_ntc_temp(void);
 ssize_t oplus_display_get_ntc_temp_attr(struct kobject *obj,
 	struct kobj_attribute *attr, char *buf);
@@ -69,25 +62,8 @@ ssize_t oplus_display_get_shell_temp_attr(struct kobject *obj,
 	struct kobj_attribute *attr, char *buf);
 ssize_t oplus_display_set_shell_temp_attr(struct kobject *obj,
 	struct kobj_attribute *attr, const char *buf, size_t count);
-/* cmd delay */
-int oplus_display_get_cmd_delay(void);
-ssize_t oplus_display_get_cmd_delay_attr(struct kobject *obj,
-	struct kobj_attribute *attr, char *buf);
-ssize_t oplus_display_set_cmd_delay_attr(struct kobject *obj,
-	struct kobj_attribute *attr, const char *buf, size_t count);
-/* compensation enable */
-ssize_t oplus_display_get_compensation_enable_attr(struct kobject *obj,
-	struct kobj_attribute *attr, char *buf);
-ssize_t oplus_display_set_compensation_enable_attr(struct kobject *obj,
-	struct kobj_attribute *attr, const char *buf, size_t count);
-/* queue compensation set */
-void oplus_display_queue_compensation_set_work(void);
 /* temp ompensation */
 int oplus_display_temp_compensation_set(void *display_panel, bool force_set);
 int oplus_display_temp_check(void *display);
-ssize_t oplus_temp_compensation_set_tc_dry_run_attr(struct kobject *obj,
-	struct kobj_attribute *attr, const char *buf, size_t count);
-ssize_t oplus_temp_compensation_get_tc_dry_run_attr(struct kobject *obj,
-	struct kobj_attribute *attr, char *buf);
 
 #endif /* _OPLUS_DISPLAY_TEMPERATURE_H_ */

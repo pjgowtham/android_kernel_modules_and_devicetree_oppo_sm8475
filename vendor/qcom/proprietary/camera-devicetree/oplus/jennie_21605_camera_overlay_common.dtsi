@@ -234,6 +234,7 @@
 		clock-rates = <19200000>;
 		status = "ok";
 		is-read-eeprom = <2>;
+		is_power_up_advance = <1>;
 	};
     //s5kjn1sq03
 	qcom,cam-sensor1 {

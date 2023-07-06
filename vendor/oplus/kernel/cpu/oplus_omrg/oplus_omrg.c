@@ -410,7 +410,7 @@ static void omrg_rule_update_work(struct kthread_work *work)
 	int i;
 	unsigned long flags;
 
-	cpus_read_lock();
+	get_online_cpus();
 	for (i = 0; i < ruler->slave_num; i++) {
 		slave = &ruler->slave_dev[i];
 		if (IS_ERR_OR_NULL(slave->freq_dev))
@@ -426,7 +426,7 @@ static void omrg_rule_update_work(struct kthread_work *work)
 		/*if (slave->freq_dev->df)
 			devfreq_apply_limits(slave->freq_dev->df);*/
 	}
-	cpus_read_unlock();
+	put_online_cpus();
 	spin_lock_irqsave(&ruler->wip_lock, flags);
 	ruler->work_in_progress = false;
 	spin_unlock_irqrestore(&ruler->wip_lock, flags);
@@ -667,14 +667,14 @@ void omrg_cpufreq_cooling_update(unsigned int cpu, unsigned int clip_freq)
 	 * accessed when cpufreq unregister this device in hotplug,
 	 * hold hotplug lock in this interface
 	 */
-	cpus_read_lock();
+	get_online_cpus();
 	rcu_read_lock();
 	freq_dev = omrg_get_cpu_dev(cpu);
 	if (!IS_ERR_OR_NULL(freq_dev))
 		omrg_update_clip_state(freq_dev, clip_freq);
 
 	rcu_read_unlock();
-	cpus_read_unlock();
+	put_online_cpus();
 }
 
 /*
@@ -781,6 +781,7 @@ unlock:
 
 	return ret;
 }
+
 
 void omrg_cpufreq_register(struct cpufreq_policy *policy)
 {
@@ -1109,7 +1110,7 @@ static bool omrg_disable_ruler(struct omrg_rule *ruler)
 	unsigned int cpu;
 	struct omrg_device *slave = NULL;
 
-	cpus_read_lock();
+	get_online_cpus();
 	for (i = 0; i < ruler->slave_num; i++) {
 		slave = &ruler->slave_dev[i];
 		if (IS_ERR_OR_NULL(slave->freq_dev))
@@ -1134,9 +1135,10 @@ static bool omrg_disable_ruler(struct omrg_rule *ruler)
 			goto error_out;
 		}
 	}
+	put_online_cpus();
+
 error_out:
-	cpus_read_unlock();
-	return true;
+	return ret;
 }
 
 static ssize_t store_ruler_enable(struct omrg_rule *ruler,

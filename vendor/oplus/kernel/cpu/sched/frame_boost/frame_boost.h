@@ -6,9 +6,9 @@
 #ifndef _FRAME_BOOST_H_
 #define _FRAME_BOOST_H_
 
+#include "frame_ioctl.h"
 #include "frame_info.h"
 #include "frame_group.h"
-#include "cluster_boost.h"
 
 #define ofb_debug(fmt, ...) \
 	pr_info("[frame boost][%s]"fmt, __func__, ##__VA_ARGS__)
@@ -47,8 +47,5 @@ extern int sysctl_input_boost_enabled;
 extern int stune_boost[BOOST_MAX_TYPE];
 extern struct fbg_vendor_hook fbg_hook;
 
-void fbg_list_entry_lock_init(void);
-void fbg_set_stune_boost(int value, unsigned int type);
-int fbg_get_stune_boost(unsigned int type);
 void fbg_sysctl_init(void);
 #endif /* _FRAME_BOOST_H_ */

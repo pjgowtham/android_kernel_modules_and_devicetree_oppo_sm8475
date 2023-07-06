@@ -29,7 +29,6 @@
 
 extern int lcd_closebl_flag;
 extern u32 oplus_last_backlight;
-extern bool g_oplus_ignore_normol_compensation;
 static int oplus_display_update_dbv_evt(struct dsi_panel *panel, u32 level);
 
 int oplus_panel_get_serial_number_info(struct dsi_panel *panel)
@@ -103,10 +102,7 @@ int oplus_panel_get_serial_number_info(struct dsi_panel *panel)
 
 int oplus_panel_features_config(struct dsi_panel *panel)
 {
-	int rc = 0;
-	u32 val = 0;
 	struct dsi_parser_utils *utils = NULL;
-
 	if (!panel) {
 		DSI_ERR("Oplus Features config No panel device\n");
 		return -ENODEV;
@@ -136,23 +132,6 @@ int oplus_panel_features_config(struct dsi_panel *panel)
 			"oplus,pwm-turbo-support");
 	DSI_INFO("oplus,pwm-turbo-support: %s",
 			panel->oplus_priv.pwm_turbo_support ? "true" : "false");
-
-	panel->oplus_priv.pwm_turbo_ignore_set_dbv_frame = utils->read_bool(utils->data,
-			"oplus,pwm-turbo-ignore-set-dbv-frame");
-	if (!panel->oplus_priv.pwm_turbo_support) {
-			panel->oplus_priv.pwm_turbo_ignore_set_dbv_frame = false;
-	}
-	DSI_INFO("oplus,pwm-turbo-ignore-set-dbv-frame: %s",
-			panel->oplus_priv.pwm_turbo_ignore_set_dbv_frame ? "true" : "false");
-
-	rc = utils->read_u32(utils->data, "oplus,pwm-turbo-gamma-bl-threshold", &val);
-	if (rc) {
-		panel->bl_config.pwm_turbo_gamma_bl_threshold = 1603;
-		DSI_INFO("oplus,pwm-turbo-gamma-bl-threshold undefined, default to %d\n", panel->bl_config.pwm_turbo_gamma_bl_threshold);
-	} else {
-		panel->bl_config.pwm_turbo_gamma_bl_threshold = val;
-		DSI_INFO("oplus,pwm-turbo-gamma-bl-threshold=%d\n", panel->bl_config.pwm_turbo_gamma_bl_threshold);
-	}
 
 	oplus_panel_get_serial_number_info(panel);
 
@@ -233,19 +212,12 @@ void oplus_panel_update_backlight(struct dsi_panel *panel,
 	char *tx_buf = NULL;
 	struct dsi_panel_cmd_set *cmd_sets;
 	u64 inverted_dbv_bl_lvl = 0;
-#ifdef OPLUS_FEATURE_DISPLAY
 	bool pwm_turbo = oplus_pwm_turbo_is_enabled(panel);
-	struct dsi_mode_info timing;
-	unsigned int refresh_rate;
-#endif
 
 	if (!panel->cur_mode || !panel->cur_mode->priv_info) {
 		DSI_ERR("Oplus Features config No panel device\n");
 		return;
 	}
-
-	timing = panel->cur_mode->timing;
-	refresh_rate = timing.refresh_rate;
 
 	if ((!strcmp(panel->oplus_priv.vendor_name, "TM_NT37705")) || (!strcmp(panel->oplus_priv.vendor_name, "TM_NT37705_DVT"))) {
 		if (bl_lvl > 0 && bl_lvl < 8)
@@ -259,38 +231,10 @@ void oplus_panel_update_backlight(struct dsi_panel *panel,
 		}
 	}
 #endif /* OPLUS_FEATURE_DISPLAY_ONSCREENFINGERPRINT */
-	SDE_ATRACE_BEGIN("oplus_panel_update_backlight");
-	oplus_display_pwm_pulse_switch(panel, bl_lvl);
-
-	if (g_oplus_ignore_normol_compensation && (!strcmp(panel->oplus_priv.vendor_name, "BOE_NT37705"))) {
-		oplus_display_queue_compensation_set_work();
-		g_oplus_ignore_normol_compensation = false;
-	} else {
-		if (!strcmp(panel->oplus_priv.vendor_name, "BOE_NT37705")) {
-			if ((bl_lvl > 1) && refresh_rate != 60) {
-				rc = oplus_display_temp_compensation_set(panel, false);
-				if (rc) {
-					pr_err("[DISP][ERR][%s:%d]failed to set temp compensation, rc=%d\n", __func__, __LINE__, rc);
-				}
-			}
-		} else {
-			if ((bl_lvl > 1) && !((!pwm_turbo) && (refresh_rate == 60))) {
-				rc = oplus_display_temp_compensation_set(panel, false);
-				if (rc) {
-					pr_err("[DISP][ERR][%s:%d]failed to set temp compensation, rc=%d\n", __func__, __LINE__, rc);
-				}
-			}
-		}
-	}
 	/*backlight value mapping */
 	oplus_panel_backlight_level_mapping(panel, &bl_lvl);
 	/*backlight value mapping */
 	oplus_panel_global_hbm_mapping(panel, &bl_lvl);
-
-	if (!panel->oplus_priv.need_sync && panel->cur_mode->priv_info->async_bl_delay) {
-		oplus_apollo_async_bl_delay(panel);
-		panel->oplus_priv.need_sync = false;
-	}
 
 	/*will inverted display brightness value */
 	if (panel->bl_config.bl_inverted_dbv)
@@ -315,6 +259,13 @@ void oplus_panel_update_backlight(struct dsi_panel *panel,
 			return;
 	}
 
+	if (pwm_turbo) {
+		rc |= oplus_set_frequency_pwm_pulse(panel, bl_lvl);
+	}
+
+	if ((!strcmp(panel->oplus_priv.vendor_name, "NT37705")) && (bl_lvl > 1)) {
+		oplus_display_temp_compensation_set(panel, false);
+	}
 	if (!strcmp(panel->oplus_priv.vendor_name, "TM_NT37705") && (bl_lvl > 1)) {
 		oplus_display_update_dbv_evt(panel, bl_lvl);
 	} else if (!strcmp(panel->oplus_priv.vendor_name, "TM_NT37705_DVT") && (bl_lvl > 1)) {
@@ -351,19 +302,8 @@ void oplus_panel_update_backlight(struct dsi_panel *panel,
 	}
 	}
 
-	SDE_ATRACE_INT("current_bl_lvl", bl_lvl);
 	LCD_DEBUG_BACKLIGHT("<%s> Final backlight lvl:%d\n", panel->oplus_priv.vendor_name, bl_lvl);
 	oplus_last_backlight = bl_lvl;
-	if (!strcmp(panel->oplus_priv.vendor_name, "BOE_NT37705")) {
-		if ((bl_lvl > 1) && (refresh_rate == 60)) {
-			oplus_display_queue_compensation_set_work();
-		}
-	} else {
-		if ((bl_lvl > 1) && (!pwm_turbo) && (refresh_rate == 60)) {
-			oplus_display_queue_compensation_set_work();
-		}
-	}
-	SDE_ATRACE_END("oplus_panel_update_backlight");
 }
 
 static int oplus_display_update_dbv_evt(struct dsi_panel *panel, u32 level)

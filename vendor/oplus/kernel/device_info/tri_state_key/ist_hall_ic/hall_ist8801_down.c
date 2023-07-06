@@ -68,9 +68,6 @@ static int ist8801_i2c_read_block(struct ist8801_data_t *ist8801_data,
 	int err = 0;
 	struct i2c_client *client = ist8801_data->client;
 	struct i2c_msg msgs[2] = {{0}, {0}};
-#if defined(CONFIG_OPLUS_FEATURE_FEEDBACK) || defined(CONFIG_OPLUS_FEATURE_FEEDBACK_MODULE)
-	char payload[1024] = {0x00};
-#endif
 
 	if (!client) {
 		TRI_KEY_ERR("client null\n");
@@ -98,12 +95,6 @@ static int ist8801_i2c_read_block(struct ist8801_data_t *ist8801_data,
 	if (err < 0) {
 		TRI_KEY_ERR("i2c_transfer error: (%d %p %d) %d\n",
 				addr, data, len, err);
-#if defined(CONFIG_OPLUS_FEATURE_FEEDBACK) || defined(CONFIG_OPLUS_FEATURE_FEEDBACK_MODULE)
-		scnprintf(payload, sizeof(payload),
-				   "NULL$$EventField@@DownHallRead$$FieldData@@Err%d$$detailData@@%d[%*ph]%d",
-				   err, addr, len, data, len);
-		oplus_kevent_fb(FB_TRI_STATE_KEY, TRIKEY_FB_BUS_TRANS_TYPE, payload);
-#endif
 		err = -EIO;
 	} else
 		err = 0;
@@ -119,9 +110,6 @@ static int ist8801_i2c_write_block(struct ist8801_data_t *ist8801_data,
 	int idx = 0;
 	int num = 0;
 	char buf[IST8801_I2C_BUF_SIZE] = {0};
-#if defined(CONFIG_OPLUS_FEATURE_FEEDBACK) || defined(CONFIG_OPLUS_FEATURE_FEEDBACK_MODULE)
-	char payload[1024] = {0x00};
-#endif
 	struct i2c_client *client = ist8801_data->client;
 
 	if (!client) {
@@ -140,15 +128,8 @@ static int ist8801_i2c_write_block(struct ist8801_data_t *ist8801_data,
 		buf[num++] = data[idx];
 
 	err = i2c_master_send(client, buf, num);
-	if (err < 0) {
+	if (err < 0)
 		TRI_KEY_ERR("send command error!! %d\n", err);
-#if defined(CONFIG_OPLUS_FEATURE_FEEDBACK) || defined(CONFIG_OPLUS_FEATURE_FEEDBACK_MODULE)
-		scnprintf(payload, sizeof(payload),
-				   "NULL$$EventField@@DownHallWrite$$FieldData@@Err%d$$detailData@@%d[%*ph]%d",
-				   err, addr, len, data, len);
-		oplus_kevent_fb(FB_TRI_STATE_KEY, TRIKEY_FB_BUS_TRANS_TYPE, payload);
-#endif
-	}
 
 	if (len == 1) {
 		switch (addr) {

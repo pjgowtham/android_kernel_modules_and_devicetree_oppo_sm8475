@@ -477,30 +477,8 @@
                 "write": false,
                 "overwrite": false
             }
-        },
-        {
-            "lable": "OPLUS_IC_FUNC_VOOC_GET_CURVE_CURR",
-            "desc": {
-                "zh": "获取充电曲线电流"
-            },
-            "auto_debug_code": true,
-            "parameter_list": ["int *"],
-            "parameter_desc": [
-                {
-                    "range": "0-*",
-                    "type": "out",
-                    "desc": {
-                        "zh": "电流值,单位ma"
-                    }
-                }
-            ],
-            "vict": {
-                "read": false,
-                "write": false,
-                "overwrite": false
-            }
         }
     ],
 
-    "version": "V2.1:26:a479fc733437770b62dd7d8d65d3f51c96184aa2a4b3212f65653e269731e0f1"
+    "version": "V2.0:25:f7ae03ab0b0c2f73bc18880e07ce53f9a25c5e08b3eb97ff36e8a3bb201e0cdc"
 }

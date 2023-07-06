@@ -101,6 +101,10 @@ if TOUCHPANEL_SYNAPTICS
 source "drivers/input/touchscreen/oplus_touchscreen_v2/Synaptics/Kconfig"
 endif
 
+if TOUCHPANEL_GOODIX
+source "drivers/input/touchscreen/oplus_touchscreen_v2/Goodix/Kconfig"
+endif
+
 if TOUCHPANEL_FOCAL
 source "drivers/input/touchscreen/oplus_touchscreen_v2/Focal/Kconfig"
 endif

@@ -177,8 +177,6 @@ void sched_assist_spread_tasks(struct task_struct *p, cpumask_t new_allowed_cpus
 	if (num_sched_clusters <= 1 || sched_type == -1)
 		return;
 
-	if (task_boost_policy(p) && SA_UX == sched_type)
-		return;
 	/*
 	 * NOTE:
 	 *     The end_index parameter indicates the number of clusters to be checked!

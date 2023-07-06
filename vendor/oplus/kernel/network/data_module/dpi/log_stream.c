@@ -47,15 +47,9 @@
 #include "../include/comm_def.h"
 #include "../include/dpi_api.h"
 
-static int s_debug = 0;
 
 #define LOG_TAG "LOG-KIT"
 #define logt(fmt, args...) LOG(LOG_TAG, fmt, ##args)
-#define logi(fmt, args...) do { \
-	if (s_debug) { \
-		LOG(LOG_TAG, fmt, ##args); \
-	} \
-} while (0)
 
 #define MAX_IP_COUNT 10
 #define MAX_HOSTNAME_LENGTH 128
@@ -116,21 +110,6 @@ static int log_kit_set_ip_addr(u32 eventid, Netlink__Proto__RequestMessage *requ
 	if(s_ip_count > 0) {
 		memcpy(s_ip_addr, requestMsg->requestsetlogsteamip->ipaddr, s_ip_count * sizeof(uint32_t));
 	}
-	do {
-		size_t len = 0, pack_len = 0;
-		char *buf = NULL;
-		NETLINK_RSP_DATA_DECLARE(rsp_name, requestMsg->header->requestid, requestMsg->header->eventid, COMM_NETLINK_SUCC);
-		len = netlink__proto__response_message__get_packed_size(&rsp_name);
-		buf = kmalloc(len, GFP_ATOMIC);
-		if (!buf) {
-			logt("malloc size %lu failed", len);
-			return COMM_NETLINK_ERR_MEMORY;
-		}
-		pack_len = netlink__proto__response_message__pack(&rsp_name, buf);
-		logi("request_log_kit_set_ip_addr pack len %lu  buf len %lu", pack_len, len);
-		*rsp_data = buf;
-		*rsp_len = len;
-	} while (0);
 	return COMM_NETLINK_SUCC;
 }
 
@@ -183,45 +162,13 @@ static void data_free(void *data)
 	}
 }
 
-static struct ctl_table oplus_log_stream_sysctl_table[] = {
-	{
-		.procname   = "debug",
-		.data       = &s_debug,
-		.maxlen     = sizeof(int),
-		.mode       = 0644,
-		.proc_handler   = proc_dointvec,
-	},
-	{}
-};
-
-static struct ctl_table_header *oplus_log_stream_table_hdr = NULL;
-
-static int oplus_stats_calc_sysctl_init(void)
-{
-	oplus_log_stream_table_hdr = register_net_sysctl(&init_net, "net/oplus_log_stream", oplus_log_stream_sysctl_table);
-	return oplus_log_stream_table_hdr == NULL ? -ENOMEM : 0;
-}
-
 int log_stream_init(void)
 {
-	int ret = 0;
-	ret = register_netlink_request(COMM_NETLINK_EVENT_SET_LOG_STREAM_IPADDR, log_kit_set_ip_addr, data_free);
-	if (ret < 0) {
-		logt("register cmd COMM_NETLINK_EVENT_SET_LOG_STREAM_IPADDR failed, ret=%d", ret);
-		return ret;
-	} else {
-		logi("init netlink successfully.");
+	int ret = register_netlink_request(COMM_NETLINK_EVENT_SET_LOG_STREAM_IPADDR, log_kit_set_ip_addr, data_free);
+	if (ret) {
+		logt("register cmd COMM_NETLINK_EVENT_SET_LOG_STREAM_IPADDR failed ");
 	}
-	ret = oplus_stats_calc_sysctl_init();
-	if(ret < 0) {
-		logt("register net sysctl failed, ret=%d", ret);
-		unregister_netlink_request(COMM_NETLINK_EVENT_SET_LOG_STREAM_IPADDR);
-		return ret;
-	}
-	else {
-		logi("init sysctl successfully.");
-	}
-	return ret;
+	return 0;
 }
 
 void log_stream_fini(void)
@@ -229,11 +176,9 @@ void log_stream_fini(void)
 	int ret = 0;
 	unregister_netlink_request(COMM_NETLINK_EVENT_SET_LOG_STREAM_IPADDR);
 	if (s_log_kit_uid) {
-		ret = dpi_unregister_app_match(s_log_kit_uid);
-		logt("dpi_unregister_app_match log kit uid %u return %d", s_log_kit_uid, ret);
+		ret = unregister_netlink_request(s_log_kit_uid);
+		logt("dpi_register_netlink_request log kit uid %u return %d", s_log_kit_uid, ret);
 		s_log_kit_uid = 0;
 	}
-	if (oplus_log_stream_table_hdr) {
-		unregister_net_sysctl_table(oplus_log_stream_table_hdr);
-	}
+	return;
 }

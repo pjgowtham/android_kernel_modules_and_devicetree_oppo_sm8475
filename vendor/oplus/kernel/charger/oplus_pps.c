@@ -120,6 +120,7 @@ struct irqinfo sc8571_int_flag[PPS_IRQ_EVNET_NUM] = {
 	{ VBUS2OUT_ERRORHI_FLAG_MASK, "VBUS2OUT_ERRORHI", 1 }, /*1C*/
 	{ VBUS2OUT_ERRORLO_FLAG_MASK, "VBUS2OUT_ERRORLO", 1 },
 };
+extern void oplus_chg_sc8571_error(int report_flag, int *buf, int ret);
 
 int __attribute__((weak)) oplus_chg_set_pps_config(int vbus_mv, int ibus_ma)
 {
@@ -137,10 +138,13 @@ int __attribute__((weak)) oplus_chg_pps_get_max_cur(int vbus_mv)
 int oplus_pps_print_dbg_info(struct oplus_pps_chip *chip)
 {
 	int i = 0;
+	bool fg_send_info = false;
+	int report_flag = 0;
 
 	for (i = 0; i < 3; i++) {
 		if ((sc8571_int_flag[i].mask & chip->int_column[0]) &&
 		    sc8571_int_flag[i].mark_except) {
+			fg_send_info = true;
 			memcpy(chip->reg_dump, chip->int_column,
 			       sizeof(chip->int_column));
 			printk("cp int happened %s\n",
@@ -151,6 +155,7 @@ int oplus_pps_print_dbg_info(struct oplus_pps_chip *chip)
 	for (i = 3; i < 6; i++) {
 		if ((sc8571_int_flag[i].mask & chip->int_column[1]) &&
 			sc8571_int_flag[i].mark_except) {
+			fg_send_info = true;
 			memcpy(chip->reg_dump, chip->int_column,
 			       sizeof(chip->int_column));
 			printk("cp int happened %s\n",
@@ -162,6 +167,7 @@ int oplus_pps_print_dbg_info(struct oplus_pps_chip *chip)
 	for (i = 6; i < 8; i++) {
 		if ((sc8571_int_flag[i].mask & chip->int_column[2]) &&
 			sc8571_int_flag[i].mark_except) {
+			fg_send_info = true;
 			memcpy(chip->reg_dump, chip->int_column,
 			       sizeof(chip->int_column));
 			printk("cp int happened %s\n",
@@ -173,6 +179,7 @@ int oplus_pps_print_dbg_info(struct oplus_pps_chip *chip)
 	for (i = 8; i < 11; i++) {
 		if ((sc8571_int_flag[i].mask & chip->int_column[3]) &&
 		    sc8571_int_flag[i].mark_except) {
+			fg_send_info = true;
 			memcpy(chip->reg_dump, chip->int_column,
 			       sizeof(chip->int_column));
 			printk("cp int happened %s\n",
@@ -184,6 +191,7 @@ int oplus_pps_print_dbg_info(struct oplus_pps_chip *chip)
 	for (i = 11; i < 13; i++) {
 		if ((sc8571_int_flag[i].mask & chip->int_column[4]) &&
 		    sc8571_int_flag[i].mark_except) {
+			fg_send_info = true;
 			memcpy(chip->reg_dump, chip->int_column,
 			       sizeof(chip->int_column));
 			printk("cp int happened %s\n",
@@ -195,6 +203,11 @@ int oplus_pps_print_dbg_info(struct oplus_pps_chip *chip)
 	return 0;
 
 chg_exception:
+	if (fg_send_info) {
+		report_flag |= (1 << 4);
+		oplus_chg_sc8571_error(report_flag, NULL, 0);
+	}
+
 	pps_err("pps data[18~1C][%d %d %d %d %d %d], iic[%d, %d]\n",
 		chip->reg_dump[0], chip->reg_dump[1], chip->reg_dump[2],
 		chip->reg_dump[3], chip->reg_dump[4], chip->reg_dump[5],
@@ -241,225 +254,6 @@ static const char *const strategy_low_curr_full[] = {
 	[PPS_LOW_CURR_FULL_CURVE_TEMP_NORMAL_LOW] = "strategy_temp_normal_low",
 	[PPS_LOW_CURR_FULL_CURVE_TEMP_NORMAL_HIGH] = "strategy_temp_normal_high",
 };
-
-#define TRACK_LOCAL_T_NS_TO_S_THD 1000000000
-#define TRACK_UPLOAD_COUNT_MAX 10
-#define TRACK_DEVICE_ABNORMAL_UPLOAD_PERIOD (24 * 3600)
-static int pps_track_get_local_time_s(void)
-{
-	int local_time_s;
-
-	local_time_s = local_clock() / TRACK_LOCAL_T_NS_TO_S_THD;
-	pps_err("local_time_s:%d\n", local_time_s);
-
-	return local_time_s;
-}
-
-static int oplus_chg_track_pack_pps_stats(struct oplus_pps_chip *chip,
-					   u8 *curx, int *index)
-{
-	if (!chip || !curx || !index)
-		return -EINVAL;
-
-	*index += snprintf(
-		&(curx[*index]), OPLUS_CHG_TRACK_CURX_INFO_LEN - *index,
-		"$$pps_msg@@status[%d, %d, %d, %d, %d, %d]"
-		"[%d, %d, %d, %d, %d, %d] [%d, %d, %d, %d, %d, %d]"
-		"ilimit[%d, %d, %d, %d, %d, %d]"
-		"data1[%d, %d, %d, %d, %d, %d, %d, %d]"
-		"data2[%d, %d, %d, %d, %d, %d][%d, %d, %d, %d, %d] [%d, %d, %d, %d, %d]"
-		"cp[%d, %d, %d, %d, %d, %d][%d, %d, %d, %d, %d]"
-		"r[%d, %d, %d, %d, %d, %d, %d]",
-		chip->pps_support_type, chip->pps_adapter_type, chip->pps_power, chip->pps_status,
-		chip->pps_stop_status, chip->pps_chging,
-
-		chip->pps_fastchg_started, chip->pps_dummy_started, chip->batt_curve_index,
-		chip->pps_low_curr_full_temp_status, chip->pps_temp_cur_range,
-		chip->pps_fastchg_batt_temp_status,
-
-		chip->target_charger_volt, chip->target_charger_current, chip->ask_charger_volt,
-		chip->ask_charger_current, chip->pps_imax, chip->pps_vmax,
-
-		chip->ilimit.current_batt_curve, chip->ilimit.current_batt_temp,
-		chip->ilimit.current_cool_down,	chip->ilimit.cp_ibus_down,
-		chip->ilimit.cp_r_down, chip->ilimit.cp_tdie_down,
-
-		chip->data.charger_output_volt, chip->data.charger_output_current,
-		chip->data.ap_batt_volt, chip->data.ap_batt_current,
-		chip->data.ap_batt_soc, chip->data.ap_batt_temperature,
-		chip->data.current_adapter_max, chip->data.vbat0,
-
-		chip->data.ap_input_volt, chip->data.ap_input_current, chip->data.cp_master_ibus,
-		chip->data.cp_master_vac, chip->data.cp_master_vout, chip->data.cp_master_tdie,
-
-		chip->data.cp_slave_vac, chip->data.cp_slave_ibus, chip->data.slave_input_volt,
-		chip->data.cp_slave_vout, chip->data.cp_slave_tdie,
-
-		chip->data.cp_slave_b_vac, chip->data.cp_slave_b_ibus,
-		chip->data.slave_b_input_volt, chip->data.cp_slave_b_vout,
-		chip->data.cp_slave_b_tdie,
-
-		chip->cp.master_enable, chip->cp.slave_enable, chip->cp.slave_b_enable,
-		chip->cp.master_abnormal, chip->cp.slave_abnormal, chip->cp.iic_err,
-		chip->cp.iic_err_num, chip->cp.master_enable_err_num, chip->cp.slave_enable_err_num,
-		chip->cp.slave_b_enable_err_num, chip->pre_cp_mode,
-
-		chip->r_avg.r0, chip->r_avg.r1, chip->r_avg.r2, chip->r_avg.r3, chip->r_avg.r4,
-		chip->r_avg.r5, chip->r_avg.r6);
-	return 0;
-}
-
-int oplus_pps_track_upload_err_info(
-	struct oplus_pps_chip *chip, int err_type, int value)
-{
-	int index = 0;
-	int curr_time;
-	static int upload_count = 0;
-	static int pre_upload_time = 0;
-
-	if (!chip)
-		return -EINVAL;
-
-	mutex_lock(&chip->track_upload_lock);
-	memset(chip->chg_power_info, 0, sizeof(chip->chg_power_info));
-	memset(chip->err_reason, 0, sizeof(chip->err_reason));
-	curr_time = pps_track_get_local_time_s();
-	if (curr_time - pre_upload_time > TRACK_DEVICE_ABNORMAL_UPLOAD_PERIOD)
-		upload_count = 0;
-
-	if (chip->debug_force_pps_err) {
-		err_type = chip->debug_force_pps_err;
-		chip->debug_force_pps_err = TRACK_PPS_ERR_DEFAULT;
-	}
-
-	if (err_type == TRACK_PPS_ERR_DEFAULT) {
-		mutex_unlock(&chip->track_upload_lock);
-		return 0;
-	}
-
-	if (upload_count > TRACK_UPLOAD_COUNT_MAX) {
-		mutex_unlock(&chip->track_upload_lock);
-		return 0;
-	}
-
-	mutex_lock(&chip->track_pps_err_lock);
-	if (chip->pps_err_uploading) {
-		pps_err("pps_err_uploading, should return\n");
-		mutex_unlock(&chip->track_pps_err_lock);
-		mutex_unlock(&chip->track_upload_lock);
-		return 0;
-	}
-
-	if (chip->pps_err_load_trigger)
-		kfree(chip->pps_err_load_trigger);
-	chip->pps_err_load_trigger = kzalloc(sizeof(oplus_chg_track_trigger), GFP_KERNEL);
-	if (!chip->pps_err_load_trigger) {
-		pps_err("pps_err_load_trigger memery alloc fail\n");
-		mutex_unlock(&chip->track_pps_err_lock);
-		mutex_unlock(&chip->track_upload_lock);
-		return -ENOMEM;
-	}
-	chip->pps_err_load_trigger->type_reason =
-		TRACK_NOTIFY_TYPE_SOFTWARE_ABNORMAL;
-	chip->pps_err_load_trigger->flag_reason =
-		TRACK_NOTIFY_FLAG_PPS_ABNORMAL;
-	chip->pps_err_uploading = true;
-	upload_count++;
-	pre_upload_time = pps_track_get_local_time_s();
-	mutex_unlock(&chip->track_pps_err_lock);
-
-	index += snprintf(
-		&(chip->pps_err_load_trigger->crux_info[index]),
-		OPLUS_CHG_TRACK_CURX_INFO_LEN - index, "$$err_scene@@%s",
-		OPLUS_CHG_TRACK_SCENE_PPS_ERR);
-
-	oplus_chg_track_get_pps_err_reason(err_type, chip->err_reason, sizeof(chip->err_reason));
-	index += snprintf(
-		&(chip->pps_err_load_trigger->crux_info[index]),
-		OPLUS_CHG_TRACK_CURX_INFO_LEN - index,
-		"$$err_reason@@%s$$value@@%d", chip->err_reason, value);
-
-	oplus_chg_track_pack_pps_stats(
-		chip, chip->pps_err_load_trigger->crux_info, &index);
-	oplus_chg_track_obtain_power_info(chip->chg_power_info, sizeof(chip->chg_power_info));
-	index += snprintf(&(chip->pps_err_load_trigger->crux_info[index]),
-			OPLUS_CHG_TRACK_CURX_INFO_LEN - index, "%s", chip->chg_power_info);
-	memset(chip->chg_power_info, 0, sizeof(chip->chg_power_info));
-	oplus_chg_track_obtain_general_info(chip->chg_power_info, strlen(chip->chg_power_info),
-					    sizeof(chip->chg_power_info));
-	index += snprintf(&(chip->pps_err_load_trigger->crux_info[index]),
-			  OPLUS_CHG_TRACK_CURX_INFO_LEN - index, "%s",
-			  chip->chg_power_info);
-	schedule_delayed_work(&chip->pps_err_load_trigger_work, 0);
-	mutex_unlock(&chip->track_upload_lock);
-	pr_info("success\n");
-
-	return 0;
-}
-
-static void pps_track_err_load_trigger_work(struct work_struct *work)
-{
-	struct delayed_work *dwork = to_delayed_work(work);
-	struct oplus_pps_chip *chip = container_of(
-		dwork, struct oplus_pps_chip, pps_err_load_trigger_work);
-
-	if (!chip)
-		return;
-
-	oplus_chg_track_upload_trigger_data(*(chip->pps_err_load_trigger));
-	if (chip->pps_err_load_trigger) {
-		kfree(chip->pps_err_load_trigger);
-		chip->pps_err_load_trigger = NULL;
-	}
-	chip->pps_err_uploading = false;
-}
-
-static int pps_track_debugfs_init(struct oplus_pps_chip *chip)
-{
-	int ret = 0;
-	struct dentry *debugfs_root;
-	struct dentry *debugfs_pps;
-
-	debugfs_root = oplus_chg_track_get_debugfs_root();
-	if (!debugfs_root) {
-		ret = -ENOENT;
-		return ret;
-	}
-
-	debugfs_pps = debugfs_create_dir("pps", debugfs_root);
-	if (!debugfs_pps) {
-		ret = -ENOENT;
-		return ret;
-	}
-
-	chip->debug_force_pps_err = TRACK_PPS_ERR_DEFAULT;
-	debugfs_create_u32("debug_force_pps_err", 0644, debugfs_pps,
-			   &(chip->debug_force_pps_err));
-
-	return ret;
-}
-
-static int pps_track_init(struct oplus_pps_chip *chip)
-{
-	int rc;
-
-	if (!chip)
-		return -EINVAL;
-
-	mutex_init(&chip->track_pps_err_lock);
-	chip->pps_err_uploading = false;
-	chip->pps_err_load_trigger = NULL;
-
-	INIT_DELAYED_WORK(&chip->pps_err_load_trigger_work,
-			  pps_track_err_load_trigger_work);
-	rc = pps_track_debugfs_init(chip);
-	if (rc < 0) {
-		pps_err("pps debugfs init error, rc=%d\n", rc);
-		return rc;
-	}
-
-	return rc;
-}
 
 static int oplus_pps_parse_charge_strategy(struct oplus_pps_chip *chip)
 {
@@ -1288,7 +1082,6 @@ static int oplus_pps_get_pps_status(struct oplus_pps_chip *chip)
 
 	pps_status = chip->ops->get_pps_status();
 	if (pps_status < 0) {
-		oplus_pps_track_upload_err_info(chip, TRACK_PPS_ERR_PPS_STATUS, pps_status);
 		pps_err("pps get pdo status fail\n");
 		return -EINVAL;
 	}
@@ -2397,8 +2190,8 @@ static void oplus_pps_check_cp_abnormal(struct oplus_pps_chip *chip)
 		chip->cp.master_enable, chip->cp.slave_enable, chip->cp.slave_b_enable,
 		chip->cp.master_abnormal, chip->cp.slave_abnormal, chip->cp.slave_b_abnormal);
 	if (cp_abnormal_cnt >= 1)
-		oplus_pps_track_upload_err_info(chip, TRACK_PPS_ERR_IBUS_LIMIT,
-					cp_abnormal_cnt);
+		oplus_chg_sc8571_error((1 << PPS_REPORT_ERROR_IBUS_LIMIT), NULL,
+				       cp_abnormal_cnt);
 }
 
 static int oplus_pps_check_2cp_ibus_curr(struct oplus_pps_chip *chip)
@@ -2503,7 +2296,8 @@ static int oplus_pps_check_tdie_curr(struct oplus_pps_chip *chip)
 		chip->count.tdie_over++;
 		if (chip->count.tdie_over == PPS_CP_TDIE_OVER_COUNTS) {
 			chip->ilimit.cp_tdie_down = OPLUS_PPS_CURRENT_LIMIT_3A;
-			oplus_pps_track_upload_err_info(chip, TRACK_PPS_ERR_TDIE_OVER, 0);
+			oplus_chg_sc8571_error(
+				(1 << PPS_REPORT_ERROR_TDIE_OVER), NULL, 0);
 		}
 	} else {
 		chip->count.tdie_over = 0;
@@ -2640,7 +2434,7 @@ static void oplus_pps_check_temp(struct oplus_pps_chip *chip)
 			if (chip->count.btb_high >= PPS_BTB_OV_CNT) {
 				chip->pps_stop_status = PPS_STOP_VOTER_BTB_OVER;
 				chip->count.btb_high = 0;
-				oplus_pps_track_upload_err_info(chip, TRACK_PPS_ERR_BTB_OVER, 0);
+				oplus_chg_sc8571_error((1 << PPS_REPORT_ERROR_BTB_OVER), NULL, 0);
 			}
 		} else {
 			chip->count.btb_high = 0;
@@ -2662,7 +2456,7 @@ static void oplus_pps_check_temp(struct oplus_pps_chip *chip)
 			if (chip->count.tfg_over >= PPS_TFG_OV_CNT) {
 				chip->pps_stop_status = PPS_STOP_VOTER_TFG_OVER;
 				chip->count.tfg_over = 0;
-				oplus_pps_track_upload_err_info(chip, TRACK_PPS_ERR_TFG_OVER, 0);
+				oplus_chg_sc8571_error((1 << PPS_REPORT_ERROR_TFG_OVER), NULL, 0);
 			}
 		} else {
 			chip->count.tfg_over = 0;
@@ -3111,7 +2905,8 @@ static void oplus_pps_check_resistense(struct oplus_pps_chip *chip)
 		chip->ilimit.cp_r_down = OPLUS_PPS_CURRENT_LIMIT_2A;
 
 	if (r_cool_down >= PPS_R_COOL_DOWN_5A) {
-		oplus_pps_track_upload_err_info(chip, TRACK_PPS_ERR_R_COOLDOWN, r_cool_down);
+		oplus_chg_sc8571_error((1 << PPS_REPORT_ERROR_R_COOLDOWN), NULL,
+			r_cool_down);
 		pps_err("r_cool_down:%d, pps_stop_status:%d\n", r_cool_down,
 			chip->pps_stop_status);
 	}
@@ -3134,8 +2929,6 @@ static void oplus_pps_check_disconnect(struct oplus_pps_chip *chip)
 				chip->pps_stop_status =
 					PPS_STOP_VOTER_DISCONNECT_OVER;
 				chip->count.output_low = 0;
-				oplus_pps_track_upload_err_info(chip,
-					TRACK_PPS_ERR_IOUT_MIN, chip->data.ap_input_current);
 			}
 		} else {
 			chip->count.output_low = 0;
@@ -3226,7 +3019,7 @@ static void oplus_pps_slave_enable_mos(struct oplus_pps_chip *chip)
 		}
 	}
 	if (cnt_fail >= 1) {
-		oplus_pps_track_upload_err_info(chip, TRACK_PPS_ERR_CP_ENABLE, cnt_fail);
+		oplus_chg_sc8571_error((1 << PPS_REPORT_ERROR_CP_ENABLE), NULL, cnt_fail);
 	}
 	chip->cp.slave_enable_err_num = cnt_fail;
 
@@ -3266,7 +3059,8 @@ static void oplus_pps_slave_enable_mos(struct oplus_pps_chip *chip)
 	chip->cp.slave_b_enable_err_num = cnt_fail;
 
 	if (cnt_fail >= 1) {
-		oplus_pps_track_upload_err_info(chip, TRACK_PPS_ERR_CP_ENABLE, cnt_fail);
+		oplus_chg_sc8571_error((1 << PPS_REPORT_ERROR_CP_ENABLE), NULL,
+				       cnt_fail);
 	}
 	if (chip->cp.slave_enable_err_num >= PPS_SLAVLE_ENALBE_CHECK_CNTS ||
 	    chip->cp.slave_b_enable_err_num >= PPS_SLAVLE_ENALBE_CHECK_CNTS) {
@@ -3320,7 +3114,8 @@ static void oplus_pps_master_enable_check(struct oplus_pps_chip *chip)
 	chip->cp.master_enable_err_num = cnt_master_fail;
 
 	if (cnt_master_fail >= 1) {
-		oplus_pps_track_upload_err_info(chip, TRACK_PPS_ERR_CP_ENABLE, cnt_master_fail);
+		oplus_chg_sc8571_error((1 << PPS_REPORT_ERROR_CP_ENABLE), NULL,
+			cnt_master_fail);
 	}
 }
 
@@ -3356,7 +3151,8 @@ static void oplus_pps_slave_enable_check(struct oplus_pps_chip *chip)
 		chip->cp.slave_enable_err_num = cnt_fail;
 
 		if (cnt_fail >= 1) {
-			oplus_pps_track_upload_err_info(chip, TRACK_PPS_ERR_CP_ENABLE, cnt_fail);
+			oplus_chg_sc8571_error((1<< PPS_REPORT_ERROR_CP_ENABLE),
+					       NULL, cnt_fail);
 		}
 
 		if (cnt_fail >= PPS_SLAVLE_ENALBE_CHECK_CNTS &&
@@ -3402,7 +3198,7 @@ static void oplus_pps_slave_enable_check(struct oplus_pps_chip *chip)
 		chip->cp.slave_b_enable_err_num = cnt_fail;
 
 		if (cnt_fail >= 1) {
-			oplus_pps_track_upload_err_info(chip, TRACK_PPS_ERR_CP_ENABLE, cnt_fail);
+			oplus_chg_sc8571_error((1<< PPS_REPORT_ERROR_CP_ENABLE), NULL, cnt_fail);
 		}
 	}
 
@@ -3623,7 +3419,7 @@ static int oplus_pps_action_status_start(struct oplus_pps_chip *chip)
 					/* stop and force to svooc */
 					pps_err("stop pps and ready force to svooc");
 					chip->pps_stop_status = PPS_STOP_VOTER_STARTUP_FAIL;
-					oplus_pps_track_upload_err_info(chip, TRACK_PPS_ERR_STARTUP_FAIL, 0);
+					oplus_chg_sc8571_error((1 << PPS_REPORT_ERROR_STARTUP_FAIL), NULL, 0);
 				}
 				chip->ask_charger_volt = PPS_VOL_CURVE_LMAX;
 			}
@@ -4007,7 +3803,7 @@ void oplus_pps_stop_usb_temp(void)
 		return;
 
 	chip->pps_stop_status = PPS_STOP_VOTER_USB_TEMP;
-	oplus_pps_track_upload_err_info(chip, TRACK_PPS_ERR_USBTEMP_OVER, 0);
+	oplus_chg_sc8571_error((1 << PPS_REPORT_ERROR_USBTEMP_OVER), NULL, 0);
 	oplus_pps_voter_charging_stop(chip);
 }
 
@@ -4324,7 +4120,8 @@ static void oplus_pps_vbat_diff_work(struct work_struct *work)
 		volt_max = oplus_gauge_get_batt_mvolts_2cell_max();
 		volt_min = oplus_gauge_get_batt_mvolts_2cell_min();
 		diff = abs(volt_max - volt_min);
-		oplus_pps_track_upload_err_info(chip, TRACK_PPS_ERR_VBAT_DIFF, diff);
+		oplus_chg_sc8571_error((1 << PPS_REPORT_ERROR_VBAT_DIFF), NULL,
+				       diff);
 	}
 	pps_err("volt_max = %d volt_min = %d diff = %d dummy = %d\n", volt_max,
 		volt_min, diff, oplus_pps_get_pps_dummy_started());
@@ -4368,7 +4165,6 @@ int oplus_pps_get_adsp_authenticate(void)
 	int auth_result = false;
 	auth_result = chip->ops->pps_get_authentiate();
 	if (auth_result < 0) {
-		oplus_pps_track_upload_err_info(chip, TRACK_PPS_ERR_AUTH_FAIL, auth_result);
 		pps_err("oplus_svooc_pps_get_authenticate  fail\n");
 		return -EINVAL;
 	}
@@ -4529,7 +4325,6 @@ void oplus_pps_clear_dbg_info(void)
 
 	chip->cp.iic_err = 0;
 	chip->cp.iic_err_num = 0;
-	chip->pre_cp_mode = 0;
 	memset(chip->int_column, 0, PPS_DUMP_REG_CNT);
 }
 
@@ -4646,7 +4441,6 @@ int oplus_pps_init(struct oplus_chg_chip *g_chg_chip)
 			  oplus_pps_ready_force2svooc_check_work);
 	oplus_pps_variables_reset(true);
 	oplus_pps_clear_dbg_info();
-	pps_track_init(chip);
 #if IS_ENABLED(CONFIG_OPLUS_DYNAMIC_CONFIG_CHARGER)
 	(void)oplus_pps_reg_debug_config(chip);
 #endif
@@ -4841,7 +4635,6 @@ int oplus_pps_cp_mode_init(int mode)
 		return -EINVAL;
 	}
 	chip->cp_mode = mode;
-	chip->pre_cp_mode = mode;
 	if (mode == PPS_SC_MODE) {
 		status = chip->ops->pps_cp_mode_init(PPS_SC_MODE);
 	} else if (mode == PPS_BYPASS_MODE) {

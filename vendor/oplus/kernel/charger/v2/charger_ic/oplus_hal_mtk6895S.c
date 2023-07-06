@@ -57,15 +57,9 @@
 #include <oplus_chg_vooc.h>
 #include <oplus_chg_voter.h>
 #include <tcpm.h>
-#include <linux/thermal.h>
-
 #define POWER_SUPPLY_TYPE_USB_HVDCP 13
-#define OPLUS_CHG_PULL_UP_VOLT_THR    7500
 
 static struct mtk_charger *pinfo;
-
-static int oplus_get_chargeric_temp(void);
-static int oplus_get_subboard_temp(void);
 
 extern int mt6375_get_hvdcp_type(void);
 extern void mt6375_enable_hvdcp_detect(void);
@@ -169,7 +163,7 @@ bool oplus_mt_get_vbus_status(void)
 		return -ENODEV;
 	}
 
-	if (tcpm_inquire_typec_attach_state(pinfo->tcpc) == TYPEC_ATTACHED_SRC)
+	if(tcpm_inquire_typec_attach_state(pinfo->tcpc) == TYPEC_ATTACHED_SRC)
 		return false;
 
 	if (pinfo->chrdet_state)
@@ -403,11 +397,6 @@ int get_vbus(struct mtk_charger *info)
 		vchr /= 1000;
 
 	return vchr;
-}
-
-int battery_meter_get_charger_voltage(void)
-{
-	return get_vbus(pinfo);
 }
 
 int get_ibat(struct mtk_charger *info)
@@ -777,10 +766,6 @@ EXPORT_SYMBOL(chr_get_debug_level);
 
 void _wake_up_charger(struct mtk_charger *info)
 {
-#ifdef OPLUS_FEATURE_CHG_BASIC
-/* do not use mtk charger thread */
-	return;
-#else
 	unsigned long flags;
 
 	info->timer_cb_duration[2] = ktime_get_boottime();
@@ -796,7 +781,6 @@ void _wake_up_charger(struct mtk_charger *info)
 	info->charger_thread_timeout = true;
 	info->timer_cb_duration[5] = ktime_get_boottime();
 	wake_up_interruptible(&info->wait_que);
-#endif
 }
 
 bool is_disable_charger(struct mtk_charger *info)
@@ -1157,11 +1141,7 @@ static void mtk_charger_parse_dt(struct mtk_charger *info,
 			of_property_read_bool(np, "enable_fast_charging_indicator");
 
 	info->support_ntc_01c_precision = of_property_read_bool(np, "oplus,support_ntc_01c_precision");
-	info->support_subboard_ntc = of_property_read_bool(np, "oplus,support_subboard_ntc");
-	/* ntc_resistance:100k internal_pull_up:100k voltage:1.84v */
-	info->ntc_temp_volt_1840mv = of_property_read_bool(np, "oplus,ntc_temp_volt_1840mv");
-	chr_debug("%s: support_ntc_01c_precision: %d, support_subboard_ntc = %d\n",
-		__func__, info->support_ntc_01c_precision, info->support_subboard_ntc);
+	chr_debug("%s: support_ntc_01c_precision: %d\n", __func__, info->support_ntc_01c_precision);
 }
 
 static void mtk_charger_start_timer(struct mtk_charger *info)
@@ -1633,28 +1613,6 @@ static ssize_t input_current_store(struct device *dev,
 }
 
 static DEVICE_ATTR_RW(input_current);
-
-static ssize_t charger_ic_ntc_show(struct device *dev,
-                                      struct device_attribute *attr, char *buf)
-{
-	int temp = 0;
-
-	temp = oplus_get_chargeric_temp();
-	return sprintf(buf, "%d\n", temp);
-}
-
-static DEVICE_ATTR_RO(charger_ic_ntc);
-
-static ssize_t charger_subboard_ntc_show(struct device *dev,
-                                      struct device_attribute *attr, char *buf)
-{
-	int temp = 0;
-
-	temp = oplus_get_subboard_temp();
-	return sprintf(buf, "%d\n", temp);
-}
-
-static DEVICE_ATTR_RO(charger_subboard_ntc);
 
 static ssize_t charger_log_level_show(struct device *dev,
 				      struct device_attribute *attr, char *buf)
@@ -3507,13 +3465,6 @@ static int mtk_charger_setup_files(struct platform_device *pdev)
 	if (ret)
 		goto _out;
 
-	ret = device_create_file(&(pdev->dev), &dev_attr_charger_subboard_ntc);
-	if (ret)
-		goto _out;
-	ret = device_create_file(&(pdev->dev), &dev_attr_charger_ic_ntc);
-	if (ret)
-		goto _out;
-
 	battery_dir = proc_mkdir("mtk_battery_cmd", NULL);
 	if (!battery_dir) {
 		chr_err("%s: mkdir /proc/mtk_battery_cmd failed\n", __func__);
@@ -3683,11 +3634,7 @@ static int psy_charger_get_property(struct power_supply *psy,
 		} else
 			val->intval = -127;
 #else
-		if (info->support_subboard_ntc) {
-			val->intval = oplus_get_subboard_temp();
-		} else {
-			val->intval = oplus_get_chargeric_temp();
-		}
+		val->intval = oplus_get_chargeric_temp();
 #endif
 		break;
 	case POWER_SUPPLY_PROP_CONSTANT_CHARGE_CURRENT_MAX:
@@ -3795,41 +3742,6 @@ static void mtk_charger_external_power_changed(struct power_supply *psy)
 
 	_wake_up_charger(info);
 }
-
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 0))
-static void hvdcp_detect_dn_check(struct mtk_charger *info)
-{
-	union power_supply_propval prop, prop2;
-	struct power_supply *chg_psy = NULL;
-	int ret;
-
-	chg_psy = info->chg_psy;
-
-	if (IS_ERR_OR_NULL(chg_psy)) {
-		pr_notice("%s Couldn't get chg_psy\n", __func__);
-	chg_psy = devm_power_supply_get_by_phandle(&info->pdev->dev,
-						       "charger");
-		info->chg_psy = chg_psy;
-	} else {
-		ret = power_supply_get_property(chg_psy,
-			POWER_SUPPLY_PROP_ONLINE, &prop);
-		ret = power_supply_get_property(chg_psy,
-			POWER_SUPPLY_PROP_USB_TYPE, &prop2);
-	}
-
-	pr_notice("%s event online:%d type:%d vbus:%d\n", __func__,
-		prop.intval, prop2.intval,
-		get_vbus(info));
-
-	oplus_chg_ic_virq_trigger(pinfo->ic_dev, OPLUS_IC_VIRQ_CHG_TYPE_CHANGE);
-
-#ifdef CONFIG_OPLUS_HVDCP_SUPPORT
-	oplus_set_hvdcp_flag_clear();
-#endif
-
-	_wake_up_charger(info);
-}
-#endif
 
 int notify_adapter_event(struct notifier_block *notifier,
 			unsigned long evt, void *val)
@@ -4048,6 +3960,7 @@ static int pd_tcp_notifier_call(struct notifier_block *pnb,
 			noti->typec_state.old_state == TYPEC_ATTACHED_SNK) &&
 			noti->typec_state.new_state == TYPEC_UNATTACHED) {
 			chr_err("Type-C plug out\n");
+			pinfo->pd_svooc = false;
 		}
 		pinfo->typec_state = noti->typec_state.new_state;
 		oplus_chg_ic_virq_trigger(pinfo->ic_dev, OPLUS_IC_VIRQ_TYPEC_STATE);
@@ -4069,23 +3982,13 @@ static int pd_tcp_notifier_call(struct notifier_block *pnb,
 	case TCP_NOTIFY_CHRDET_STATE:
 		pinfo->chrdet_state = noti->chrdet_state.chrdet;
 		pr_err("%s chrdet = %d\n", __func__, noti->chrdet_state.chrdet);
-
-		cancel_delayed_work_sync(&pinfo->detach_clean_work);
 		if (noti->chrdet_state.chrdet == 0) {
+			pinfo->pd_svooc = false;
 			oplus_chg_ic_virq_trigger(pinfo->ic_dev, OPLUS_IC_VIRQ_SVID);
-
-			/*fix the one plus charger break bug: delay to set the pd_svooc state*/
-			schedule_delayed_work(&pinfo->detach_clean_work, msecs_to_jiffies(500));
 		}
 		oplus_chg_ic_virq_trigger(pinfo->ic_dev, OPLUS_IC_VIRQ_PLUGIN);
 		oplus_chg_ic_virq_trigger(pinfo->ic_dev, OPLUS_IC_VIRQ_CHG_TYPE_CHANGE);
 		break;
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 0))
-	case TCP_NOTIFY_HVDCP_DETECT_DN:
-		chr_err("HVDCP_DETECT_DN = %d\n", (bool)noti->hvdcp_detect.hvdcp_detect_dn);
-		hvdcp_detect_dn_check(pinfo);
-		break;
-#endif
 	}
 	return ret;
 }
@@ -4218,21 +4121,6 @@ static int oplus_suspend_charger(bool suspend)
 		chg_info("%s charger\n", suspend ? "suspend" : "unsuspend");
 
 	return rc;
-}
-
-static int mtk_chg_gauge_init(struct oplus_chg_ic_dev *ic_dev)
-{
-	ic_dev->online = true;
-	return 0;
-}
-
-static int mtk_chg_gauge_exit(struct oplus_chg_ic_dev *ic_dev)
-{
-	if (!ic_dev->online)
-		return 0;
-
-	ic_dev->online = false;
-	return 0;
 }
 
 static int oplus_mt6375_suspend_charger(struct mtk_charger *info)
@@ -4667,22 +4555,10 @@ static int mtk_chg_set_otg_boost_vol(struct oplus_chg_ic_dev *ic_dev, int vol_mv
 	return 0;
 }
 
-static int mtk_chg_set_otg_boost_curr_limit(struct oplus_chg_ic_dev *ic_dev, int curr_uA)
+static int mtk_chg_set_otg_boost_curr_limit(struct oplus_chg_ic_dev *ic_dev, int curr_ma)
 {
-	int rc;
-	struct mtk_charger *info = oplus_chg_ic_get_drvdata(ic_dev);
-	struct charger_device *chg;
-
-	if (info == NULL) {
-		chg_err("info is NULL");
-		return -ENODEV;
-	}
-
-	chg = info->chg1_dev;
-	rc =  charger_dev_set_boost_current_limit(chg, curr_uA);
-	if (rc < 0)
-		chg_err("set otg cc err, rc=%d\n", rc);
-	return rc;
+	/* TODO */
+	return 0;
 }
 
 static int mtk_chg_aicl_enable(struct oplus_chg_ic_dev *ic_dev, bool en)
@@ -4763,6 +4639,7 @@ static int mtk_chg_get_hw_detect(struct oplus_chg_ic_dev *ic_dev, int *detected)
 	chip = oplus_chg_ic_get_drvdata(ic_dev);
 
 	*detected = chip->wd0_detect;
+
 	return 0;
 }
 
@@ -4922,16 +4799,7 @@ static int mtk_chg_qc_detect_enable(struct oplus_chg_ic_dev *ic_dev, bool en)
 
 static int mtk_chg_shipmode_enable(struct oplus_chg_ic_dev *ic_dev, bool en)
 {
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 0))
-	struct mtk_charger *info = oplus_chg_ic_get_drvdata(ic_dev);
-
-	if (info == NULL)
-		return -EINVAL;
-	if (en) {
-		chg_info(" enable ship mode \n");
-		charger_dev_enable_ship_mode(info->chg1_dev);
-	}
-#endif
+	/* TODO */
 	return 0;
 }
 
@@ -4953,6 +4821,7 @@ static void oplus_chg_get_soc_and_temp(int *soc, int *temp)
 	}
 }
 
+#define OPLUS_CHARGER_QC_VOLT_MIN       (7500)
 static void oplus_hvdcp_detect_work(struct work_struct *work)
 {
 	int chg_volt = 0;
@@ -4961,7 +4830,7 @@ static void oplus_hvdcp_detect_work(struct work_struct *work)
 
 	if (chip->hvdcp_disable == false) {
 		chg_volt = get_vbus(chip);
-		if (OPLUS_CHG_PULL_UP_VOLT_THR > chg_volt) {
+		if (OPLUS_CHARGER_QC_VOLT_MIN > chg_volt) {
 			chip->hvdcp_disable = true;
 		}
 		chg_info("chg_volt = [%d] hvdcp_disable = %d \n",
@@ -4969,31 +4838,20 @@ static void oplus_hvdcp_detect_work(struct work_struct *work)
 	}
 }
 
-static void oplus_detach_clean_work(struct work_struct *work)
-{
-	struct mtk_charger *chip = container_of(work,
-			struct mtk_charger, detach_clean_work.work);
-
-	if (chip) {
-		chg_info("clean the pd_svooc \n");
-		chip->pd_svooc = false;
-	}
-}
-
 static void oplus_chg_set_qc_config_forvoocphy(struct mtk_charger *chip, int vol_mv)
 {
-	int chg_vol = battery_meter_get_charger_voltage();
+	chg_info("%s: set qc to %d mv\n", __func__, vol_mv);
 
-	chg_info("set qc to %d mv, chg_vol = %d\n", vol_mv, chg_vol);
 	if (vol_mv == 9000) {
-		if (chg_vol > OPLUS_CHG_PULL_UP_VOLT_THR)
+		if (chip->hvdcp_disable)
 			return;
-
 		mt6375_set_hvdcp_to_9v();
 		oplus_notify_hvdcp_detect_stat();
+		/* check if the QC can be changed from 5v to 9V. */
+		cancel_delayed_work_sync(&chip->hvdcp_detect_work);
+		schedule_delayed_work(&chip->hvdcp_detect_work, msecs_to_jiffies(1000));
 	} else {
-		if (chg_vol > OPLUS_CHG_PULL_UP_VOLT_THR)
-			mt6375_set_hvdcp_to_5v();
+		mt6375_set_hvdcp_to_5v();
 	}
 }
 
@@ -5001,14 +4859,11 @@ static void oplus_chg_set_qc_config_forvoocphy(struct mtk_charger *chip, int vol
 #define QC_BUCK_DELAY_MS	400
 static void oplus_chg_set_qc_config_forsvooc(struct mtk_charger *chip, int vol_mv)
 {
-	int chg_vol = battery_meter_get_charger_voltage();
-
-	chg_info("set qc to %d mv, chg_vol = %d\n", vol_mv, chg_vol);
+	chg_info("%s: set qc to %d mv\n", __func__, vol_mv);
 
 	if (vol_mv == 9000) {
-		if (chg_vol > OPLUS_CHG_PULL_UP_VOLT_THR)
+		if (chip->hvdcp_disable)
 			return;
-
 		mt6375_set_hvdcp_to_5v();
 		msleep(PDQC_BOOST_DELAY_MS);
 		oplus_suspend_charger(true);
@@ -5016,13 +4871,14 @@ static void oplus_chg_set_qc_config_forsvooc(struct mtk_charger *chip, int vol_m
 		oplus_notify_hvdcp_detect_stat();
 		msleep(PDQC_BOOST_DELAY_MS);
 		oplus_suspend_charger(false);
+		/* check if the QC can be changed from 5v to 9V. */
+		cancel_delayed_work_sync(&chip->hvdcp_detect_work);
+		schedule_delayed_work(&chip->hvdcp_detect_work, msecs_to_jiffies(1000));
 	} else {
-		if (chg_vol > OPLUS_CHG_PULL_UP_VOLT_THR) {
-			oplus_suspend_charger(true);
-			mt6375_set_hvdcp_to_5v();
-			msleep(QC_BUCK_DELAY_MS);
-			oplus_suspend_charger(false);
-		}
+		oplus_suspend_charger(true);
+		mt6375_set_hvdcp_to_5v();
+		msleep(QC_BUCK_DELAY_MS);
+		oplus_suspend_charger(false);
 	}
 }
 
@@ -5030,7 +4886,6 @@ static int mtk_chg_set_qc_config(struct oplus_chg_ic_dev *ic_dev, enum oplus_chg
 {
 	struct mtk_charger *chip;
 	int soc, temp;
-	int chg_vol = battery_meter_get_charger_voltage();
 
 	if (ic_dev == NULL) {
 		chg_err("ic_dev is NULL");
@@ -5046,9 +4901,8 @@ static int mtk_chg_set_qc_config(struct oplus_chg_ic_dev *ic_dev, enum oplus_chg
 			return -EINVAL;
 		} else if (vol_mv == 9000) {
 			oplus_chg_get_soc_and_temp(&soc, &temp);
-			if (soc >= 90 || temp > 530 || chg_vol > OPLUS_CHG_PULL_UP_VOLT_THR) {
-				chg_info("no allow set 9V, soc = %d, temp = %d, chg_vol = %d\n",
-					  soc, temp, chg_vol);
+			if (soc >= 90 || temp > 530) {
+				chg_info("no allow set 9V, soc = %d, temp = %d\n", soc, temp);
 				return 0;
 			}
 		}
@@ -5058,12 +4912,10 @@ static int mtk_chg_set_qc_config(struct oplus_chg_ic_dev *ic_dev, enum oplus_chg
 		} else if (oplus_gauge_get_batt_num() != 1) {
 			oplus_chg_set_qc_config_forsvooc(chip, vol_mv);
 		} else {
-			if (vol_mv == 9000) {
+			if (vol_mv == 9000)
 				mt6375_set_hvdcp_to_9v();
-			} else {
-				if (chg_vol > OPLUS_CHG_PULL_UP_VOLT_THR)
-					mt6375_set_hvdcp_to_5v();
-			}
+			else
+				mt6375_set_hvdcp_to_5v();
 		}
 		break;
 	case OPLUS_CHG_QC_3_0:
@@ -5203,7 +5055,6 @@ static int mtk_chg_set_pd_config(struct oplus_chg_ic_dev *ic_dev, u32 pdo)
 	int vol_mv, curr_ma;
 	int soc, temp;
 	int rc = 0;
-	int chg_vol = battery_meter_get_charger_voltage();
 
 	if (ic_dev == NULL) {
 		chg_err("ic_dev is NULL");
@@ -5233,9 +5084,8 @@ static int mtk_chg_set_pd_config(struct oplus_chg_ic_dev *ic_dev, u32 pdo)
 
 	if (vol_mv == 9000) {
 		oplus_chg_get_soc_and_temp(&soc, &temp);
-		if (soc >= 90 || temp > 530 || chg_vol > OPLUS_CHG_PULL_UP_VOLT_THR) {
-			chg_info("no allow set 9V, soc = %d, temp = %d, chg_vol = %d\n",
-				  soc, temp, chg_vol);
+		if (soc >= 90 || temp > 530) {
+			chg_info("no allow set 9V, soc = %d, temp = %d\n", soc, temp);
 			return 0;
 		}
 	}
@@ -5457,63 +5307,16 @@ static int mtk_chg_get_usb_btb_temp(struct oplus_chg_ic_dev *ic_dev, int *usb_bt
 }
 
 static int oplus_chg_get_battery_btb_temp_cal(void);
-static int oplus_chg_get_sub_battery_btb_temp_cal(void);
 static int mtk_chg_get_batt_btb_temp(struct oplus_chg_ic_dev *ic_dev, int *batt_btb_temp)
 {
-	int batt_temp, sub_batt_temp;
-
-	if (ic_dev == NULL) {
-		chg_err("oplus_chg_ic_dev is NULL");
-		return -ENODEV;
-	}
-	batt_temp = oplus_chg_get_battery_btb_temp_cal() / 10;
-
-	if (pinfo->sub_batt_btb_temp_chan) {
-		sub_batt_temp = oplus_chg_get_sub_battery_btb_temp_cal() / 10;
-		*batt_btb_temp = batt_temp >= sub_batt_temp ? batt_temp : sub_batt_temp;
-	} else {
-		*batt_btb_temp = batt_temp;
-	}
-
-	return 0;
-}
-static int oplus_chg_get_subboard_temp(struct oplus_chg_ic_dev *ic_dev, int *temp)
-{
 	if (ic_dev == NULL) {
 		chg_err("oplus_chg_ic_dev is NULL");
 		return -ENODEV;
 	}
 
-	*temp = oplus_get_subboard_temp();
+	*batt_btb_temp = oplus_chg_get_battery_btb_temp_cal();
+
 	return 0;
-}
-static void *oplus_chg_mt6895_gauge_get_func(struct oplus_chg_ic_dev *ic_dev, enum oplus_chg_ic_func func_id)
-{
-	void *func = NULL;
-
-	if (!ic_dev->online && (func_id != OPLUS_IC_FUNC_INIT) &&
-		(func_id != OPLUS_IC_FUNC_EXIT)) {
-		chg_err("%s is offline\n", ic_dev->name);
-		return NULL;
-	}
-
-	switch (func_id) {
-	case OPLUS_IC_FUNC_INIT:
-		func = OPLUS_CHG_IC_FUNC_CHECK(OPLUS_IC_FUNC_INIT, mtk_chg_gauge_init);
-		break;
-	case OPLUS_IC_FUNC_EXIT:
-		func = OPLUS_CHG_IC_FUNC_CHECK(OPLUS_IC_FUNC_EXIT, mtk_chg_gauge_exit);
-		break;
-	case OPLUS_IC_FUNC_GAUGE_GET_SUBBOARD_TEMP:
-		func = OPLUS_CHG_IC_FUNC_CHECK(OPLUS_IC_FUNC_GAUGE_GET_SUBBOARD_TEMP,
-				oplus_chg_get_subboard_temp);
-		break;
-	default:
-		chg_err("this func(=%d) is not supported\n", func_id);
-		func = NULL;
-		break;
-	}
-	return func;
 }
 
 static void *oplus_chg_get_func(struct oplus_chg_ic_dev *ic_dev,
@@ -5674,15 +5477,15 @@ static void *oplus_chg_get_func(struct oplus_chg_ic_dev *ic_dev,
 		break;
 	case OPLUS_IC_FUNC_SET_TYPEC_MODE:
 		func = OPLUS_CHG_IC_FUNC_CHECK(OPLUS_IC_FUNC_SET_TYPEC_MODE,
-					       mtk_chg_set_typec_mode);
+						   mtk_chg_set_typec_mode);
 		break;
 	case OPLUS_IC_FUNC_SET_OTG_SWITCH_STATUS:
-		func = OPLUS_CHG_IC_FUNC_CHECK(OPLUS_IC_FUNC_SET_OTG_SWITCH_STATUS,
-					       mtk_chg_set_otg_switch_status);
+		func = OPLUS_CHG_IC_FUNC_CHECK(OPLUS_IC_FUNC_SET_OTG_SWITCH_STATUS, 
+						   mtk_chg_set_otg_switch_status);
 		break;
 	case OPLUS_IC_FUNC_GET_OTG_SWITCH_STATUS:
-		func = OPLUS_CHG_IC_FUNC_CHECK(OPLUS_IC_FUNC_GET_OTG_SWITCH_STATUS,
-					       mtk_chg_get_otg_switch_status);
+		func = OPLUS_CHG_IC_FUNC_CHECK(OPLUS_IC_FUNC_GET_OTG_SWITCH_STATUS, 
+						   mtk_chg_get_otg_switch_status);
 		break;
 	case OPLUS_IC_FUNC_GET_OTG_ENABLE:
 		func = OPLUS_CHG_IC_FUNC_CHECK(OPLUS_IC_FUNC_GET_OTG_ENABLE,
@@ -5727,15 +5530,15 @@ struct oplus_chg_ic_virq mtk_chg_virq_table[] = {
 	{ .virq_id = OPLUS_IC_VIRQ_SVID },
 	{ .virq_id = OPLUS_IC_VIRQ_TYPEC_STATE },
 };
-
-struct oplus_chg_ic_virq oplus_chg_mt6895_gauge_virq_table[] = {
-	{ .virq_id = OPLUS_IC_VIRQ_ERR },
-};
 #endif /* OPLUS_FEATURE_CHG_BASIC */
 
 #ifdef OPLUS_FEATURE_CHG_BASIC
 #define CHARGER_25C_VOLT	900
 #define TEMP_25C		250
+struct chtemperature {
+	__s32 bts_temp;
+	__s32 temperature_r;
+};
 
 static struct temp_param sub_board_temp_table[] = {
 	{-40, 4397119}, {-39, 4092874}, {-38, 3811717}, {-37, 3551749}, {-36, 3311236}, {-35, 3088599}, {-34, 2882396}, {-33, 2691310},
@@ -5761,7 +5564,7 @@ static struct temp_param sub_board_temp_table[] = {
 	{120,    2916}, {121,    2832}, {122,    2751}, {123,    2672}, {124,    2596}, {125,    2522}
 };
 
-static struct temp_param charger_ic_temp_table[] = {
+static struct chtemperature charger_ic_temp_table[] = {
 	{-40, 4251000}, {-39, 3962000}, {-38, 3695000}, {-37, 3447000}, {-36, 3218000}, {-35, 3005000},
 	{-34, 2807000}, {-33, 2624000}, {-32, 2454000}, {-31, 2296000}, {-30, 2149000}, {-29, 2012000},
 	{-28, 1885000}, {-27, 1767000}, {-26, 1656000}, {-25, 1554000}, {-24, 1458000}, {-23, 1369000},
@@ -5792,7 +5595,92 @@ static struct temp_param charger_ic_temp_table[] = {
 	{122, 2787   }, {123, 2709   }, {124, 2633   }, {125, 2560   }
 };
 
-static __s16 oplus_ch_thermistor_conver_temp(__s32 res, struct ntc_temp *ntc_param)
+static __s16 oplus_ch_thermistor_conver_temp(__s32 res)
+{
+	int i = 0;
+	int asize = 0;
+	__s32 res1 = 0, res2 = 0;
+	__s32 tap_value = -2000, tmp1 = 0, tmp2 = 0;
+
+	asize = (sizeof(charger_ic_temp_table) / sizeof(struct chtemperature));
+
+	if (res >= charger_ic_temp_table[0].temperature_r) {
+		tap_value = -400;	/* min */
+	} else if (res <= charger_ic_temp_table[asize - 1].temperature_r) {
+		tap_value = 1250;	/* max */
+	} else {
+		res1 = charger_ic_temp_table[0].temperature_r;
+		tmp1 = charger_ic_temp_table[0].bts_temp;
+
+		for (i = 0; i < asize; i++) {
+			if (res >= charger_ic_temp_table[i].temperature_r) {
+				res2 = charger_ic_temp_table[i].temperature_r;
+				tmp2 = charger_ic_temp_table[i].bts_temp;
+				break;
+			}
+			res1 = charger_ic_temp_table[i].temperature_r;
+			tmp1 = charger_ic_temp_table[i].bts_temp;
+		}
+
+		tap_value = (((res - res2) * tmp1) + ((res1 - res) * tmp2)) * 10 / (res1 - res2);
+	}
+
+	return tap_value;
+}
+
+static __s16 oplus_ts_ch_volt_to_temp(__u32 dwvolt)
+{
+	__s32 tres;
+	__u64 dwvcrich = 0;
+	__s32 chg_tmp = -100;
+	__u64 dwvcrich2 = 0;
+	const int g_tap_over_critical_low = 4251000;
+	const int g_rap_pull_up_r = 100000; /* 100K, pull up resister */
+	const int g_rap_pull_up_voltage = 1840;
+	dwvcrich = ((__u64)g_tap_over_critical_low * (__u64)g_rap_pull_up_voltage);
+	dwvcrich2 = (g_tap_over_critical_low + g_rap_pull_up_r);
+	do_div(dwvcrich, dwvcrich2);
+
+	if (dwvolt > ((__u32)dwvcrich)) {
+		tres = g_tap_over_critical_low;
+	} else {
+		tres = (g_rap_pull_up_r * dwvolt) / (g_rap_pull_up_voltage - dwvolt);
+	}
+
+	/* convert register to temperature */
+	chg_tmp = oplus_ch_thermistor_conver_temp(tres);
+
+	return chg_tmp;
+}
+
+int oplus_get_chargeric_temp(void)
+{
+	int val = 0;
+	int ret = 0, output;
+
+	if (pinfo && pinfo->chargeric_temp_chan) {
+		ret = iio_read_channel_processed(pinfo->chargeric_temp_chan, &val);
+		if (ret< 0) {
+			chg_err("read usb_temp_v_r_chan volt failed, rc=%d\n", ret);
+			return ret;
+		}
+	}
+
+	if (val <= 0) {
+		val = CHARGER_25C_VOLT;
+	}
+	ret = val;
+	output = oplus_ts_ch_volt_to_temp(ret);
+	if (pinfo->support_ntc_01c_precision) {
+		pinfo->chargeric_temp = output;
+	} else {
+		pinfo->chargeric_temp = output / 10;
+	}
+
+	return pinfo->chargeric_temp;
+}
+
+static __s16 oplus_ch_thermistor_conver_temp1(__s32 res, struct ntc_temp *ntc_param)
 {
 	int i = 0;
 	int asize = 0;
@@ -5850,8 +5738,8 @@ static __s16 oplus_res_to_temp(struct ntc_temp *ntc_param)
 	}
 
 	/* convert register to temperature */
-	chg_tmp = oplus_ch_thermistor_conver_temp(tres, ntc_param);
-	chg_info("tres :%d, chg_tmp :%d\n", tres, chg_tmp);
+	chg_tmp = oplus_ch_thermistor_conver_temp1(tres, ntc_param);
+	chg_info("[subboard_temp] tres :%d,chg_tmp :%d\n", tres, chg_tmp);
 	return chg_tmp;
 }
 
@@ -5884,13 +5772,6 @@ static int oplus_get_temp_volt(struct ntc_temp *ntc_param)
 			return -1;
 		}
 		temp_chan = pinfo->batt_btb_temp_chan;
-		break;
-	case NTC_SUB_BATTERY_BTB:
-		if (!pinfo->sub_batt_btb_temp_chan) {
-			chg_err("batt_btb_temp_chan NULL\n");
-			return -1;
-		}
-		temp_chan = pinfo->sub_batt_btb_temp_chan;
 		break;
 	case NTC_USB_BTB:
 		if (!pinfo->usb_btb_temp_chan) {
@@ -5940,12 +5821,6 @@ static int oplus_chg_get_battery_btb_temp_cal(void)
 		ntc_param.i_25c_volt = 2457;
 		ntc_param.pst_temp_table = sub_board_temp_table;
 		ntc_param.i_table_size = (sizeof(sub_board_temp_table) / sizeof(struct temp_param));
-		if (pinfo->ntc_temp_volt_1840mv) {
-			ntc_param.i_tap_over_critical_low = 4251000;
-			ntc_param.i_rap_pull_up_voltage = 1840;
-			ntc_param.pst_temp_table = charger_ic_temp_table;
-			ntc_param.i_table_size = (sizeof(charger_ic_temp_table) / sizeof(struct temp_param));
-		}
 		is_param_init = true;
 
 		chg_err("ntc_type:%d,critical_low:%d,pull_up_r=%d,pull_up_voltage=%d,tap_min=%d,tap_max=%d,table_size=%d\n", \
@@ -5960,49 +5835,10 @@ static int oplus_chg_get_battery_btb_temp_cal(void)
 	} else {
 		pinfo->i_sub_board_temp = subboard_temp / 10;
 	}
+	pinfo->i_sub_board_temp = subboard_temp / 10;/*bringup 6895*/
 	chg_info("subboard_temp: %d,volt:%d\n", pinfo->i_sub_board_temp, ntc_param.ui_dwvolt);
 	return pinfo->i_sub_board_temp;
 }
-
-static int oplus_chg_get_sub_battery_btb_temp_cal(void)
-{
-	int subboard_temp = 0;
-	static bool is_param_init = false;
-	static struct ntc_temp ntc_param = {0};
-
-	if (!pinfo || !pinfo->sub_batt_btb_temp_chan) {
-		chg_err("null pinfo\n");
-		return TEMP_25C;
-	}
-
-	if (!is_param_init) {
-		ntc_param.e_ntc_type = NTC_SUB_BATTERY_BTB;
-		ntc_param.i_tap_over_critical_low = 4251000;
-		ntc_param.i_rap_pull_up_r = 100000;
-		ntc_param.i_rap_pull_up_voltage = 1840;
-		ntc_param.i_tap_min = -400;
-		ntc_param.i_tap_max = 1250;
-		ntc_param.i_25c_volt = 2457;
-		ntc_param.pst_temp_table = charger_ic_temp_table;
-		ntc_param.i_table_size = (sizeof(charger_ic_temp_table) / sizeof(struct temp_param));
-		is_param_init = true;
-
-		chg_err("ntc_type:%d,critical_low:%d,pull_up_r=%d,pull_up_voltage=%d,tap_min=%d,tap_max=%d,table_size=%d\n", \
-			ntc_param.e_ntc_type, ntc_param.i_tap_over_critical_low, ntc_param.i_rap_pull_up_r, \
-			ntc_param.i_rap_pull_up_voltage, ntc_param.i_tap_min, ntc_param.i_tap_max, ntc_param.i_table_size);
-	}
-	ntc_param.ui_dwvolt = oplus_get_temp_volt(&ntc_param);
-	subboard_temp = oplus_res_to_temp(&ntc_param);
-
-	if (pinfo->support_ntc_01c_precision) {
-		pinfo->i_sub_board_temp = subboard_temp;
-	} else {
-		pinfo->i_sub_board_temp = subboard_temp / 10;
-	}
-	chg_info("sub_bat_btb_temp: %d,volt:%d\n", pinfo->i_sub_board_temp, ntc_param.ui_dwvolt);
-	return pinfo->i_sub_board_temp;
-}
-
 
 static int oplus_chg_get_usb_btb_temp_cal(void)
 {
@@ -6025,12 +5861,6 @@ static int oplus_chg_get_usb_btb_temp_cal(void)
 		ntc_param.i_25c_volt = 2457;
 		ntc_param.pst_temp_table = sub_board_temp_table;
 		ntc_param.i_table_size = (sizeof(sub_board_temp_table) / sizeof(struct temp_param));
-		if (pinfo->ntc_temp_volt_1840mv) {
-			ntc_param.i_tap_over_critical_low = 4251000;
-			ntc_param.i_rap_pull_up_voltage = 1840;
-			ntc_param.pst_temp_table = charger_ic_temp_table;
-			ntc_param.i_table_size = (sizeof(charger_ic_temp_table) / sizeof(struct temp_param));
-		}
 		is_param_init = true;
 
 		chg_err("ntc_type:%d,critical_low:%d,pull_up_r=%d,pull_up_voltage=%d,tap_min=%d,tap_max=%d,table_size=%d\n", \
@@ -6046,15 +5876,13 @@ static int oplus_chg_get_usb_btb_temp_cal(void)
 		pinfo->i_sub_board_temp = subboard_temp / 10;
 	}
 	pinfo->i_sub_board_temp = subboard_temp / 10;/*bringup 6895*/
-	chg_info("subboard_temp:%d,volt:%d\n", pinfo->i_sub_board_temp, ntc_param.ui_dwvolt);
+	chg_err("subboard_temp:%d,volt:%d\n", pinfo->i_sub_board_temp, ntc_param.ui_dwvolt);
 	return pinfo->i_sub_board_temp;
 }
 
-
-static int oplus_get_subboard_temp(void)
+int oplus_force_get_subboard_temp(void)
 {
-	int temp = 0;
-	int sub_board_temp = 0;
+	int subboard_temp = 0;
 	static bool is_param_init = false;
 	static struct ntc_temp ntc_param = {0};
 
@@ -6067,7 +5895,7 @@ static int oplus_get_subboard_temp(void)
 		ntc_param.e_ntc_type = NTC_SUB_BOARD;
 		ntc_param.i_tap_over_critical_low = 4397119;
 		ntc_param.i_rap_pull_up_r = 100000;
-		ntc_param.i_rap_pull_up_voltage = 1840;
+		ntc_param.i_rap_pull_up_voltage = 1800;
 		ntc_param.i_tap_min = -400;
 		ntc_param.i_tap_max = 1250;
 		ntc_param.i_25c_volt = 2457;
@@ -6075,68 +5903,23 @@ static int oplus_get_subboard_temp(void)
 		ntc_param.i_table_size = (sizeof(sub_board_temp_table) / sizeof(struct temp_param));
 		is_param_init = true;
 
-		chg_info("ntc_type:%d,critical_low:%d,pull_up_r=%d,pull_up_voltage=%d,tap_min=%d,tap_max=%d,table_size=%d\n", \
-			ntc_param.e_ntc_type, ntc_param.i_tap_over_critical_low, ntc_param.i_rap_pull_up_r, \
-			ntc_param.i_rap_pull_up_voltage, ntc_param.i_tap_min, ntc_param.i_tap_max, ntc_param.i_table_size);
-	}
-	ntc_param.ui_dwvolt = oplus_get_temp_volt(&ntc_param);
-	temp = oplus_res_to_temp(&ntc_param);
-
-	if (pinfo->support_ntc_01c_precision)
-		sub_board_temp = temp;
-	else
-		sub_board_temp = temp / 10;
-
-	chg_info("temp:%d, volt:%d\n", sub_board_temp, ntc_param.ui_dwvolt);
-
-	return sub_board_temp;
-}
-
-int oplus_force_get_subboard_temp(void)
-{
-	return oplus_get_subboard_temp();
-}
-EXPORT_SYMBOL(oplus_force_get_subboard_temp);
-
-static int oplus_get_chargeric_temp(void)
-{
-	int chargeric_temp = 0;
-	static bool is_param_init = false;
-	static struct ntc_temp ntc_param = {0};
-
-	if (!pinfo) {
-		chg_err("null pinfo\n");
-		return TEMP_25C;
-	}
-
-	if (!is_param_init) {
-		ntc_param.e_ntc_type = NTC_CHARGER_IC;
-		ntc_param.i_tap_over_critical_low = 4251000;
-		ntc_param.i_rap_pull_up_r = 100000;
-		ntc_param.i_rap_pull_up_voltage = 1840;
-		ntc_param.i_tap_min = -400;
-		ntc_param.i_tap_max = 1250;
-		ntc_param.i_25c_volt = 2457;
-		ntc_param.pst_temp_table = charger_ic_temp_table;
-		ntc_param.i_table_size = (sizeof(charger_ic_temp_table) / sizeof(struct temp_param));
-		is_param_init = true;
 		chg_err("ntc_type:%d,critical_low:%d,pull_up_r=%d,pull_up_voltage=%d,tap_min=%d,tap_max=%d,table_size=%d\n", \
 			ntc_param.e_ntc_type, ntc_param.i_tap_over_critical_low, ntc_param.i_rap_pull_up_r, \
 			ntc_param.i_rap_pull_up_voltage, ntc_param.i_tap_min, ntc_param.i_tap_max, ntc_param.i_table_size);
 	}
-
 	ntc_param.ui_dwvolt = oplus_get_temp_volt(&ntc_param);
-	chargeric_temp = oplus_res_to_temp(&ntc_param);
+	subboard_temp = oplus_res_to_temp(&ntc_param);
 
 	if (pinfo->support_ntc_01c_precision) {
-		pinfo->chargeric_temp = chargeric_temp;
+		pinfo->i_sub_board_temp = subboard_temp;
 	} else {
-		pinfo->chargeric_temp = chargeric_temp / 10;
+		pinfo->i_sub_board_temp = subboard_temp / 10;
 	}
-	chg_debug("chargeric_temp:%d,volt:%d\n", pinfo->chargeric_temp, ntc_param.ui_dwvolt);
+	chg_err("subboard_temp:%d,volt:%d\n", pinfo->i_sub_board_temp, ntc_param.ui_dwvolt);
 
-	return pinfo->chargeric_temp;
+	return pinfo->i_sub_board_temp;
 }
+EXPORT_SYMBOL(oplus_force_get_subboard_temp);
 
 int oplus_mt6375_get_tchg(int *tchg_min,	int *tchg_max)
 {
@@ -6161,160 +5944,6 @@ bool oplus_tchg_01c_precision(void)
 EXPORT_SYMBOL(oplus_tchg_01c_precision);
 #endif
 
-
-static int oplus_mtk_ic_register(struct device *dev, struct mtk_charger *info)
-{
-	enum oplus_chg_ic_type ic_type;
-	int ic_index;
-	struct device_node *node = dev->of_node;
-	struct device_node *child;
-	struct oplus_chg_ic_dev *ic_dev = NULL;
-	struct oplus_chg_ic_cfg ic_cfg;
-	int rc;
-
-	if (NULL == dev || NULL == info) {
-		chg_err("input param is NULL\n");
-		return -ENODEV;
-	}
-
-	rc = of_property_read_u32(node, "oplus,ic_type", &ic_type);
-	if (rc < 0) {
-		chg_err("can't get ic type, rc=%d\n", rc);
-		return -ENODEV;
-	}
-	rc = of_property_read_u32(node, "oplus,ic_index", &ic_index);
-	if (rc < 0) {
-		chg_err("can't get ic index, rc=%d\n", rc);
-		return -ENODEV;
-	}
-
-	ic_cfg.name = node->name;
-	ic_cfg.index = ic_index;
-	sprintf(ic_cfg.manu_name, "MTK6895");
-	sprintf(ic_cfg.fw_id, "0x00");
-	ic_cfg.type = ic_type;
-	ic_cfg.get_func = oplus_chg_get_func;
-	ic_cfg.virq_data = mtk_chg_virq_table;
-	ic_cfg.virq_num = ARRAY_SIZE(mtk_chg_virq_table);
-	pinfo->ic_dev = devm_oplus_chg_ic_register(&pinfo->pdev->dev, &ic_cfg);
-	if (!pinfo->ic_dev) {
-		rc = -ENODEV;
-		chg_err("register %s error\n", node->name);
-		return rc;
-	}
-	chg_info("register %s\n", node->name);
-
-	for_each_child_of_node(dev->of_node, child) {
-		rc = of_property_read_u32(child, "oplus,ic_type", &ic_type);
-		if (rc < 0) {
-			chg_err("can't get %s ic type, rc=%d\n", child->name, rc);
-			continue;
-		}
-		rc = of_property_read_u32(child, "oplus,ic_index", &ic_index);
-		if (rc < 0) {
-			chg_err("can't get %s ic index, rc=%d\n", child->name, rc);
-			continue;
-		}
-		chg_info("node %s, ic_type = %d, ic_index = %d\n", child->name, ic_type, ic_index);
-
-		ic_cfg.name = child->name;
-		ic_cfg.index = ic_index;
-		ic_cfg.type = ic_type;
-
-		switch (ic_type) {
-		case OPLUS_CHG_IC_GAUGE:
-			sprintf(ic_cfg.manu_name, "MTK6895-gauge");
-			sprintf(ic_cfg.fw_id, "0x00");
-			ic_cfg.get_func = oplus_chg_mt6895_gauge_get_func;
-			ic_cfg.virq_data = oplus_chg_mt6895_gauge_virq_table;
-			ic_cfg.virq_num = ARRAY_SIZE(oplus_chg_mt6895_gauge_virq_table);
-			break;
-		default:
-			chg_err("not support ic_type(=%d)\n", ic_type);
-			continue;
-		}
-
-		ic_dev = devm_oplus_chg_ic_register(&pinfo->pdev->dev, &ic_cfg);
-		if (!ic_dev) {
-			rc = -ENODEV;
-			chg_err("register %s error\n", child->name);
-			continue;
-		}
-		chg_info("register %s success.\n", child->name);
-
-		switch (ic_type) {
-		case OPLUS_CHG_IC_GAUGE:
-			info->gauge_ic_dev = ic_dev;
-			break;
-		default:
-			chg_err("not support ic_type(=%d) ...\n", ic_type);
-			continue;
-		}
-		of_platform_populate(child, NULL, NULL, dev);
-	}
-
-	return 0;
-}
-
-#ifdef CONFIG_THERMAL
-static int cp_thermal_read_temp(struct thermal_zone_device *tzd,
-		int *temp)
-{
-	int cp_temp;
-
-	cp_temp = oplus_chg_get_battery_btb_temp_cal() * 100; /* thermal zone need 0.001 */
-	*temp = cp_temp;
-
-	return 0;
-}
-
-static struct thermal_zone_device_ops cp_temp_tzd_ops = {
-	.get_temp = cp_thermal_read_temp,
-};
-
-static int sub_batt_thermal_read_temp(struct thermal_zone_device *tzd,
-		int *temp)
-{
-	int batt_temp;
-
-	batt_temp = oplus_chg_get_sub_battery_btb_temp_cal() * 100; /* thermal zone need 0.001 */
-	*temp = batt_temp;
-
-	return 0;
-}
-
-static struct thermal_zone_device_ops sub_batt_temp_tzd_ops = {
-	.get_temp = sub_batt_thermal_read_temp,
-};
-
-static int register_tz_thermal(struct mtk_charger *info)
-{
-	int ret = 0;
-
-	info->cp_temp_tzd = thermal_zone_device_register("charge_pump_temp",
-					0, 0, NULL, &cp_temp_tzd_ops, NULL, 0, 0);
-	if (IS_ERR(info->cp_temp_tzd)) {
-		chg_err("cp_temp_tzd register fail");
-		return PTR_ERR(info->cp_temp_tzd);
-	}
-	ret = thermal_zone_device_enable(info->cp_temp_tzd);
-	if (ret)
-		thermal_zone_device_unregister(info->cp_temp_tzd);
-
-	info->sub_batt_temp_tzd = thermal_zone_device_register("sub_batt_temp",
-					0, 0, NULL, &sub_batt_temp_tzd_ops, NULL, 0, 0);
-	if (IS_ERR(info->sub_batt_temp_tzd)) {
-		chg_err("sub_batt_temp_tzd register fail");
-		return PTR_ERR(info->sub_batt_temp_tzd);
-	}
-	ret = thermal_zone_device_enable(info->sub_batt_temp_tzd);
-	if (ret)
-		thermal_zone_device_unregister(info->sub_batt_temp_tzd);
-
-	return ret;
-}
-#endif
-
 static int mtk_charger_probe(struct platform_device *pdev)
 {
 	struct mtk_charger *info = NULL;
@@ -6324,10 +5953,14 @@ static int mtk_charger_probe(struct platform_device *pdev)
 		.input = chg_nl_data_handler,
 	};
 #ifdef OPLUS_FEATURE_CHG_BASIC
+	struct device_node *node = pdev->dev.of_node;
+	struct oplus_chg_ic_cfg ic_cfg = { 0 };
+	enum oplus_chg_ic_type ic_type;
+	int ic_index;
 	int rc = 0;
 #endif
 
-	chr_info("starts\n");
+	chr_err("%s: 111 starts\n", __func__);
 
 #ifdef OPLUS_FEATURE_CHG_BASIC
 	if (!tcpc_dev_get_by_name("type_c_port0")) {
@@ -6503,16 +6136,16 @@ static int mtk_charger_probe(struct platform_device *pdev)
 		}
 	}
 
+	pinfo->subboard_temp_chan = devm_iio_channel_get(&pdev->dev, "auxadc2_ntc_sub_bat_tem");
+	if (IS_ERR(pinfo->subboard_temp_chan)) {
+		chg_err("Couldn't get subboard_temp_chan...\n");
+		pinfo->subboard_temp_chan = NULL;
+	}
+
 	pinfo->batt_btb_temp_chan = devm_iio_channel_get(&pdev->dev, "auxadc5_batt_btb_temp");
 	if (IS_ERR(pinfo->batt_btb_temp_chan)) {
 		chg_err("Couldn't get batt_btb_temp_chan...\n");
 		pinfo->batt_btb_temp_chan = NULL;
-	}
-
-	pinfo->sub_batt_btb_temp_chan = devm_iio_channel_get(&pdev->dev, "sub_bat_btb_temp");
-	if (IS_ERR(pinfo->sub_batt_btb_temp_chan)) {
-		chg_err("Couldn't get sub_batt_btb_temp_chan...\n");
-		pinfo->sub_batt_btb_temp_chan = NULL;
 	}
 
 	pinfo->usb_btb_temp_chan = devm_iio_channel_get(&pdev->dev, "auxadc6_usb_btb_temp");
@@ -6521,7 +6154,7 @@ static int mtk_charger_probe(struct platform_device *pdev)
 		pinfo->usb_btb_temp_chan = NULL;
 	}
 
-	pinfo->subboard_temp_chan = devm_iio_channel_get(&pdev->dev, "auxadc1-ntc_sub_bat_tem");
+	pinfo->subboard_temp_chan = devm_iio_channel_get(&pdev->dev, "auxadc2_ntc_sub_bat_tem");
 	if (IS_ERR(pinfo->subboard_temp_chan)) {
 		chg_err("Couldn't get subboard_temp_chan...\n");
 		pinfo->subboard_temp_chan = NULL;
@@ -6535,20 +6168,35 @@ static int mtk_charger_probe(struct platform_device *pdev)
 
 	pinfo->hvdcp_disable = false;
 	INIT_DELAYED_WORK(&pinfo->hvdcp_detect_work, oplus_hvdcp_detect_work);
-	pinfo->pd_svooc = false;
-	INIT_DELAYED_WORK(&pinfo->detach_clean_work, oplus_detach_clean_work);
 
-	if (oplus_mtk_ic_register(&pdev->dev, pinfo) != 0)
+	rc = of_property_read_u32(node, "oplus,ic_type", &ic_type);
+	if (rc < 0) {
+		chg_err("can't get ic type, rc=%d\n", rc);
 		goto reg_ic_err;
-#ifdef CONFIG_THERMAL
-	rc = register_tz_thermal(pinfo);
-	if (rc)
-		chg_err("register tz fail");
-#endif
+	}
+	rc = of_property_read_u32(node, "oplus,ic_index", &ic_index);
+	if (rc < 0) {
+		chg_err("can't get ic index, rc=%d\n", rc);
+		goto reg_ic_err;
+	}
+	ic_cfg.name = node->name;
+	ic_cfg.index = ic_index;
+	sprintf(ic_cfg.manu_name, "MTK6895");
+	sprintf(ic_cfg.fw_id, "0x00");
+	ic_cfg.type = ic_type;
+	ic_cfg.get_func = oplus_chg_get_func;
+	ic_cfg.virq_data = mtk_chg_virq_table;
+	ic_cfg.virq_num = ARRAY_SIZE(mtk_chg_virq_table);
+	pinfo->ic_dev = devm_oplus_chg_ic_register(&pinfo->pdev->dev, &ic_cfg);
+	if (!pinfo->ic_dev) {
+		rc = -ENODEV;
+		chg_err("register %s error\n", node->name);
+		goto reg_ic_err;
+	}
+
 reg_ic_err:
 #endif
 
-	chg_info("probe complete\n");
 	return 0;
 }
 

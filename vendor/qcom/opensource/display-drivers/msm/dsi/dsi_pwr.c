@@ -149,8 +149,7 @@ static int dsi_pwr_enable_vregs(struct dsi_regulator_info *regs, bool enable)
 			/* Add for vddr->vci power on sequence */
 			if ((display != NULL) && (display->panel != NULL)) {
 				if ((!strcmp(display->panel->oplus_priv.vendor_name,"RM692E5") ||
-					(!strcmp(display->panel->oplus_priv.vendor_name,"NT37705")) ||
-					(!strcmp(display->panel->oplus_priv.vendor_name,"BOE_NT37705"))) &&
+					(!strcmp(display->panel->oplus_priv.vendor_name,"NT37705"))) &&
 					(!strcmp(vreg->vreg_name, "vci"))) {
 					if (display && display->panel &&
 						gpio_is_valid(display->panel->reset_config.panel_vout_gpio)) {
@@ -208,8 +207,7 @@ static int dsi_pwr_enable_vregs(struct dsi_regulator_info *regs, bool enable)
 #ifdef OPLUS_FEATURE_DISPLAY
 		/* Add for vci->vddr->vddi power off sequence */
 		if ((display != NULL) && (display->panel != NULL)) {
-			if (((!strcmp(display->panel->oplus_priv.vendor_name,"NT37705")) ||
-				 (!strcmp(display->panel->oplus_priv.vendor_name,"BOE_NT37705"))) &&
+			if ((!strcmp(display->panel->oplus_priv.vendor_name,"NT37705")) &&
 					(!strcmp(vreg->vreg_name, "vddio"))) {
 				if (display && display->panel &&
 						gpio_is_valid(display->panel->reset_config.panel_vout_gpio)) {

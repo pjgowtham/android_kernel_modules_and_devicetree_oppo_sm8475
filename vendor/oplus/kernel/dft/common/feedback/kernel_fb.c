@@ -68,8 +68,7 @@ static char *const _tag[FB_MAX_TYPE + 1] = {
 	"fb_storage",
 	"PSW_BSP_SENSOR",
 	"fb_boot",
-	"PSW_BSP_CAMERA",
-	"PSW_BSP_TRI_STATE_KEY"
+	"PSW_BSP_CAMERA"
 };
 static char fid[CAUSENAME_SIZE]={""};
 

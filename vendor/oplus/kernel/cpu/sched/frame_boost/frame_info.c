@@ -80,7 +80,6 @@ unsigned int get_frame_rate(void)
 
 	return frame_rate;
 }
-EXPORT_SYMBOL_GPL(get_frame_rate);
 
 /*
  * set_max_frame_rate - set max frame rate by sf
@@ -98,7 +97,6 @@ void set_max_frame_rate(unsigned int frame_rate)
 	__set_frame_rate(frame_rate);
 	raw_spin_unlock_irqrestore(&frame_info_lock, flags);
 }
-EXPORT_SYMBOL_GPL(set_max_frame_rate);
 
 /*
  * set_frame_rate - set frame rate by top app
@@ -136,7 +134,6 @@ bool set_frame_rate(unsigned int frame_rate)
 
 	return true;
 }
-EXPORT_SYMBOL_GPL(set_frame_rate);
 
 int set_frame_margin(int margin_ms)
 {
@@ -165,13 +162,11 @@ int set_frame_margin(int margin_ms)
 
 	return 0;
 }
-EXPORT_SYMBOL_GPL(set_frame_margin);
 
 bool is_high_frame_rate(void)
 {
 	return default_frame_info.frame_rate > DEFAULT_FRAME_RATE;
 }
-EXPORT_SYMBOL_GPL(is_high_frame_rate);
 
 /*
  * set_frame_util_min - set minimal utility clamp value
@@ -196,7 +191,6 @@ int set_frame_util_min(int min_util, bool clear)
 
 	return 0;
 }
-EXPORT_SYMBOL_GPL(set_frame_util_min);
 
 /*
  * set_frame_state - set frame state when switch fg/bg, receive vsync-app or
@@ -223,7 +217,6 @@ void set_frame_state(unsigned int state)
 	}
 	raw_spin_unlock_irqrestore(&frame_info_lock, flags);
 }
-EXPORT_SYMBOL_GPL(set_frame_state);
 
 /*
  * get_frame_vutil - calculate frame virtual util using delta
@@ -321,7 +314,6 @@ bool check_last_compose_time(bool composition)
 
 	return (now - frame_info->last_compose_time) <= frame_info->frame_interval;
 }
-EXPORT_SYMBOL_GPL(check_last_compose_time);
 
 int frame_info_init(void)
 {

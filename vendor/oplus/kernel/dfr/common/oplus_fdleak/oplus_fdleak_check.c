@@ -24,7 +24,6 @@
 #define SIG_FDLEAK_CHECK_TRIGGER (SIGRTMIN + 10)
 #define BIONIC_SIGNAL_FDTRACK (SIGRTMIN + 7)
 #define TASK_COMM_LEN			16
-#define THRESHOLD_LEN                   10
 #define MAX_SYMBOL_LEN 64
 #define TASK_WHITE_LIST_MAX  128
 
@@ -47,7 +46,6 @@ struct fdleak_white_list_struct {
 static struct fdleak_white_list_struct white_list[TASK_WHITE_LIST_MAX] = {
 	{"fdleak_example", 2048, 2560},
 	{"composer", 2048, 2560},
-	{"surfaceflinger", 2048, 2560},
 };
 
 static ssize_t fdleak_proc_read(struct file *file, char __user *buf,
@@ -81,13 +79,9 @@ static ssize_t fdleak_proc_write(struct file *file, const char __user *buf,
 {
 	int tmp_load_threshold = 0;
 	int tmp_dump_threshold = 0;
-	char tmp_task[TASK_COMM_LEN] = {0};
+	char tmp_task[16] = {0};
 	int ret = 0;
-	char buffer[64] = {0};
-	int max_len[] = {TASK_COMM_LEN, THRESHOLD_LEN, THRESHOLD_LEN};
-	int part;
-	char delim[] = {' ', ' ', '\n'};
-	char *start, *end;
+	char buffer[100] = {0};
 	int i;
 
 	if (count > 64) {
@@ -98,22 +92,12 @@ static ssize_t fdleak_proc_write(struct file *file, const char __user *buf,
 		pr_err(FDLEAK_CHECK_LOG_TAG "%s: read proc input error.\n", __func__);
 		return count;
 	}
-
-	/* validate the length of each of the 3 parts */
-	start = buffer;
-	for (part = 0; part < 3; part++) {
-		end = strchr(start, delim[part]);
-		if (end == NULL || (end - start) > max_len[part]) {
-			return count;
-		}
-		start = end + 1;
-	}
-
 	ret = sscanf(buffer, "%s %d %d", &tmp_task, &tmp_load_threshold, &tmp_dump_threshold);
 	if(ret <= 0) {
 		pr_err(FDLEAK_CHECK_LOG_TAG "%s: input error\n", __func__);
 		return count;
 	}
+
 	for (i = 0; i < ARRAY_SIZE(white_list); i++) {
 		if (strlen(white_list[i].comm) && !strcmp(white_list[i].comm, tmp_task)) {
 			white_list[i].load_threshold = tmp_load_threshold;

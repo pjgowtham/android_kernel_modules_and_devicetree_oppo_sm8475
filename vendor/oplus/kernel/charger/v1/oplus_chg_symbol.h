@@ -25,7 +25,7 @@
 #define qti_battery_charger_get_prop qti_battery_charger_get_prop_v1
 #endif /* USE_ADSP */
 
-#if IS_ENABLED(CONFIG_OPLUS_CHARGER_MTK6895S) || IS_ENABLED(CONFIG_OPLUS_CHARGER_MTK6985S)
+#if IS_ENABLED(CONFIG_OPLUS_CHARGER_MTK6895S)
 
 #define oplus_chg_wake_update_work oplus_chg_wake_update_work_v1
 #define oplus_chg_check_chip_is_null oplus_chg_check_chip_is_null_v1

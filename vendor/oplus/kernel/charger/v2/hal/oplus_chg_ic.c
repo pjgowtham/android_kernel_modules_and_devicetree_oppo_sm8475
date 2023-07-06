@@ -21,6 +21,14 @@ struct ic_devres {
 	struct oplus_chg_ic_dev *ic_dev;
 };
 
+static DEFINE_MUTEX(list_lock);
+static LIST_HEAD(ic_list);
+#ifdef CONFIG_OPLUS_CHG_IC_DEBUG
+static DEFINE_IDA(oplus_chg_ic_ida);
+#define OPLUS_CHG_IC_MAX 256
+static struct class oplus_chg_ic_class;
+static dev_t oplus_chg_ic_devno;
+
 static const char * const err_type_text[] = {
 	[OPLUS_IC_ERR_UNKNOWN]		= "Unknown",
 	[OPLUS_IC_ERR_I2C]		= "I2C",
@@ -32,14 +40,6 @@ static const char * const err_type_text[] = {
 	[OPLUS_IC_ERR_CP]		= "ChargePump",
 	[OPLUS_IC_ERR_CC_LOGIC]		= "CCLogic",
 };
-
-static DEFINE_MUTEX(list_lock);
-static LIST_HEAD(ic_list);
-#ifdef CONFIG_OPLUS_CHG_IC_DEBUG
-static DEFINE_IDA(oplus_chg_ic_ida);
-#define OPLUS_CHG_IC_MAX 256
-static struct class oplus_chg_ic_class;
-static dev_t oplus_chg_ic_devno;
 
 int oplus_chg_ic_get_new_minor(void)
 {
@@ -63,7 +63,7 @@ void oplus_chg_ic_list_unlock(void)
 	mutex_unlock(&list_lock);
 }
 
-struct oplus_chg_ic_dev *oplus_chg_ic_find_by_name(const char *name)
+struct oplus_chg_ic_dev *oplsu_chg_ic_find_by_name(const char *name)
 {
 	struct oplus_chg_ic_dev *dev_temp;
 
@@ -96,7 +96,7 @@ struct oplus_chg_ic_dev *of_get_oplus_chg_ic(struct device_node *node,
 		return NULL;
 
 	chg_debug("search %s\n", ic_node->name);
-	return oplus_chg_ic_find_by_name(ic_node->name);
+	return oplsu_chg_ic_find_by_name(ic_node->name);
 }
 
 #ifdef OPLUS_CHG_REG_DUMP_ENABLE
@@ -128,7 +128,7 @@ int oplus_chg_ic_reg_dump_by_name(const char *name)
 		chg_err("ic name is NULL\n");
 		return -EINVAL;
 	}
-	ic_dev = oplus_chg_ic_find_by_name(name);
+	ic_dev = oplsu_chg_ic_find_by_name(name);
 	if (ic_dev == NULL) {
 		chg_err("%s ic not found\n", name);
 		return -ENODEV;
@@ -668,7 +668,6 @@ int oplus_chg_ic_virq_trigger(struct oplus_chg_ic_dev *ic_dev,
 	chg_err("%s not support this virq_id(=%d)\n", ic_dev->name, virq_id);
 	return -ENOTSUPP;
 }
-EXPORT_SYMBOL(oplus_chg_ic_virq_trigger);
 
 __printf(4, 5)
 int oplus_chg_ic_creat_err_msg(struct oplus_chg_ic_dev *ic_dev,

@@ -10,9 +10,6 @@
 #include <kernel/sched/sched.h>
 #include <trace/hooks/cgroup.h>
 #include <trace/hooks/signal.h>
-#ifdef CONFIG_CONT_PTE_HUGEPAGE
-#include <trace/hooks/mm.h>
-#endif
 
 #include "sched_assist.h"
 #include "sa_common.h"
@@ -31,9 +28,6 @@ static int register_scheduler_vendor_hooks(void)
 	REGISTER_TRACE_RVH(android_rvh_place_entity, android_rvh_place_entity_handler);
 	REGISTER_TRACE_RVH(android_rvh_pick_next_entity, android_rvh_pick_next_entity_handler);
 	REGISTER_TRACE_RVH(android_rvh_can_migrate_task, android_rvh_can_migrate_task_handler);
-#ifndef CONFIG_OPLUS_SYSTEM_KERNEL_QCOM
-	REGISTER_TRACE_RVH(android_rvh_post_init_entity_util_avg, android_rvh_post_init_entity_util_avg_handler);
-#endif
 	/* REGISTER_TRACE_RVH(android_rvh_select_task_rq_fair, android_rvh_select_task_rq_fair_handler); */
 	/* REGISTER_TRACE_RVH(android_rvh_find_energy_efficient_cpu, android_rvh_find_energy_efficient_cpu_handler); */
 	REGISTER_TRACE_RVH(android_rvh_enqueue_entity, android_rvh_enqueue_entity_handler);
@@ -77,11 +71,6 @@ static int register_scheduler_vendor_hooks(void)
 #if IS_ENABLED(CONFIG_OPLUS_FEATURE_BAN_APP_SET_AFFINITY)
 	/* register vendor hook in kernel/core.c */
 	REGISTER_TRACE_VH(android_vh_sched_setaffinity_early, android_vh_sched_setaffinity_early_handler);
-#endif
-
-#ifdef CONFIG_CONT_PTE_HUGEPAGE
-	/*This hook is not used,We use it to get ux stats,for fix a trouble of GKI.*/
-	REGISTER_TRACE_VH(android_vh_pcplist_add_cma_pages_bypass, android_vh_test_currect_ux_handler);
 #endif
 	return 0;
 }

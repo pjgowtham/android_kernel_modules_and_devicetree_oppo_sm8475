@@ -20,10 +20,8 @@
                 "OPLUS_CHG_IC_VIRTUAL_GAUGE",
                 "OPLUS_CHG_IC_ASIC",
                 "OPLUS_CHG_IC_VIRTUAL_ASIC",
-                "OPLUS_CHG_IC_VPHY",
-                "OPLUS_CHG_IC_VIRTUAL_VPHY",
-                "OPLUS_CHG_IC_SWITCH",
-                "OPLUS_CHG_IC_VIRTUAL_SWITCH"
+		"OPLUS_CHG_IC_VPHY",
+		"OPLUS_CHG_IC_VIRTUAL_VPHY"
             ]
         },
         {
@@ -92,7 +90,6 @@
         "ic/gauge.json",
         "ic/misc.json",
         "ic/voocphy.json",
-        "ic/vooc.json",
-        "ic/parallel.json"
+        "ic/vooc.json"
     ]
 }

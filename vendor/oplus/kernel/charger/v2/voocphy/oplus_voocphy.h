@@ -14,9 +14,6 @@
 #include <linux/timer.h>
 #include <linux/hrtimer.h>
 #include <linux/slab.h>
-#if IS_ENABLED(CONFIG_OPLUS_DYNAMIC_CONFIG_CHARGER)
-#include "oplus_cfg.h"
-#endif
 
 #define IRQ_EVNET_NUM				8
 #define BIDIRECT_IRQ_EVNET_NUM			12
@@ -502,9 +499,6 @@ do {				\
 #define	OPLUS_FASTCHG_STAGE_2	  	2
 #define OPLUS_FASTCHG_RECOVER_TIME   	(15000/VOOC_FASTCHG_CHECK_TIME)
 
-#define BCC_CURRENT_MIN		(1000/100)
-#define SINGAL_BATT_SVOOC_CURRENT_FACTOR 2
-
 struct vooc_monitor_event {
 	int status;
 	int cnt;
@@ -522,7 +516,7 @@ struct batt_sys_curve {
 	unsigned int chg_time;
 };
 
-#define BATT_SYS_ROW_MAX        20
+#define BATT_SYS_ROW_MAX        13
 #define BATT_SYS_COL_MAX        7
 #define BATT_SYS_MAX            6
 
@@ -648,7 +642,6 @@ struct oplus_voocphy_manager {
 	int vooc_warm_allow_vol;
 	int vooc_warm_allow_soc;
 	int cool_down;
-	int parallel_charge_project;
 
 	unsigned int plug_in_batt_temp;
 
@@ -663,11 +656,9 @@ struct oplus_voocphy_manager {
 	unsigned int vooc_cool_down_num;
 	unsigned int current_default;
 	unsigned int current_expect;
-	unsigned int current_bcc_ext;
 	unsigned int current_max;
 	unsigned int current_spec;
 	unsigned int current_ap;
-	unsigned int current_bcc;
 	unsigned int current_batt_temp;
 	unsigned char ap_need_change_current;
 	unsigned char adjust_curr;
@@ -747,7 +738,7 @@ struct oplus_voocphy_manager {
 	bool fastchg_recovering;
 	unsigned int fastchg_recover_cnt;
 
-	int vooc_current;
+	int screenoff_current;
 	int vooc_vbus_status;
 	int vbus_vbatt;
 	int adapter_type;
@@ -799,7 +790,6 @@ struct oplus_voocphy_manager {
 	int irq_rcverr_num;
 	int vooc_flag;
 	int interrupt_flag;
-	int interrupt_flag_hl7138;
 	int irq_tx_timeout_num;
 	int irq_tx_timeout;
 	int irq_hw_timeout_num;
@@ -870,12 +860,7 @@ struct oplus_voocphy_manager {
 	u8 int_column_pre[6];
 	bool copycat_vooc_support;
 	int chip_id;
-	int high_curr_setting;
 	enum oplus_voocphy_ovp_ctrl ovp_ctrl_cpindex;
-
-#if IS_ENABLED(CONFIG_OPLUS_DYNAMIC_CONFIG_CHARGER)
-	struct oplus_cfg debug_cfg;
-#endif
 };
 
 struct oplus_voocphy_operations {

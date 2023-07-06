@@ -211,9 +211,7 @@ int oplus_switching_get_if_need_balance_bat(int vbat0_mv, int vbat1_mv)
 			    && chip->mmi_chg) {
 		    		error_reason |= REASON_SUB_BATT_FULL;
 			}
-			if ((diff_volt >= g_switching_chip->parallel_vbat_gap_abnormal)
-			    || ((diff_volt >= g_switching_chip->parallel_vbat_gap_recov)
-			    && (pre_error_reason & REASON_VBAT_GAP_BIG))) {
+			if (diff_volt >= g_switching_chip->parallel_vbat_gap_abnormal) {
 				error_reason |= REASON_VBAT_GAP_BIG;
 			}
 			if ((pre_error_reason & REASON_SUB_BATT_FULL)
@@ -564,7 +562,7 @@ int oplus_chg_track_parallel_mos_error(int reason)
 
 	index += snprintf(&(g_switching_chip->mos_err_load_trigger->crux_info[index]),
 			  OPLUS_CHG_TRACK_CURX_INFO_LEN - index,
-			  "$$err_reason@@");
+			  "$$error_reason@@");
 	switch (reason) {
 	case REASON_SOC_NOT_FULL:
 	case REASON_CURRENT_UNBALANCE:

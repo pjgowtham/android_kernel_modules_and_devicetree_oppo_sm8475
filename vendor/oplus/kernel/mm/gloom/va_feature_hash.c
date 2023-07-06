@@ -76,6 +76,7 @@ struct va_metadata *oplus_gloom_va_feature_search_hash(pid_t pid)
 void oplus_gloom_va_feature_delete_hash_and_trigger_event(pid_t pid, struct mm_struct *mm)
 {
 	struct va_metadata *data;
+	int flag = 0;
 
 	spin_lock_irq(&pidhash_lock);
 	hlist_for_each_entry_rcu(data,
@@ -84,10 +85,14 @@ void oplus_gloom_va_feature_delete_hash_and_trigger_event(pid_t pid, struct mm_s
 		if (data->nr != pid)
 			continue;
 
+		flag = 1;
 		hlist_del_rcu(&data->pid_chain);
 		break;
 	}
 	spin_unlock_irq(&pidhash_lock);
+
+	if (1 == flag)
+		trigger_svm_oom_event(data, mm, false, false);
 
 	kfree(data);
 	return;

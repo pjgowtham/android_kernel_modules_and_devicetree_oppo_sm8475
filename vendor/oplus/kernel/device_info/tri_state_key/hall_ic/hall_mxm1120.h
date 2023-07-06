@@ -308,7 +308,6 @@ struct m1120_data_t {
 	int                 irq;
 	int                 irq_gpio;
 	int                 use_hrtimer;
-	int                 data_offect;
 	struct regulator    *vdd;
 	struct regulator    *vio;
 	int    power_enabled;

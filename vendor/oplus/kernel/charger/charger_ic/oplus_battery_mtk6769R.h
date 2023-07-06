@@ -86,25 +86,10 @@ typedef enum {
         BATT_TEMP_EXTEND_ABOVE_T7
 }OPLUS_CHG_BATT_TEMP_EXTEND_STAT;
 
-enum {
-	CHARGER_NORMAL_CHG_CURVE,
-	CHARGER_FASTCHG_SVOOC_CURVE,
-	CHARGER_FASTCHG_VOOC_AND_QCPD_CURVE,
-};
-
 struct master_chg_psy {
 	struct device *dev;
 	struct power_supply_desc mastercharger_psy_desc;
 	struct power_supply_config mastercharger_psy_cfg;
 	struct power_supply *mastercharger_psy;
-};
-
-struct charger_manager_drvdata {
-	struct charger_manager *pinfo;
-	bool external_cclogic;
-};
-
-struct mtk_pmic {
-	struct charger_manager* oplus_info;
 };
 #endif /* __OPLUS_BATTERY_MTK6768_H__ */

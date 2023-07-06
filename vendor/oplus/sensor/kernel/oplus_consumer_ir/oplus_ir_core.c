@@ -24,22 +24,6 @@
 #define MIN_FREQUENCY 20000
 #define MAX_FREQUENCY 60000
 
-#if defined (OPLUS_FEATURE_CAMERA_COMMON) && defined (CONFIG_OPLUS_PMIC_COMMON)
-enum wl2868c_ldo_num {
-	WL2868C_LDO1 = 1,
-	WL2868C_LDO2 = 2,
-	WL2868C_LDO3 = 3,
-	WL2868C_LDO4 = 4,
-	WL2868C_LDO5 = 5,
-	WL2868C_LDO6 = 6,
-	WL2868C_LDO7 = 7,
-};
-
-extern int wl2868c_test_i2c_enable(void);
-extern int wl2868c_voltage_output(unsigned int ldo_num, int vol);
-extern int wl2868c_ldo_set_disable(unsigned int ldo_num);
-#endif
-
 struct hw_core_config_t {
 	int vdd_type;
 	int vdd_min_vol;
@@ -145,15 +129,6 @@ static void enable_ir_vdd(struct ir_core *ir_core)
 			pr_err("oplus_ir_core: file_write vdd_3v0 enable fail\n");
 		}
 	}
-
-#if defined (OPLUS_FEATURE_CAMERA_COMMON) && defined (CONFIG_OPLUS_PMIC_COMMON)
-	if ((true ==  wl2868c_test_i2c_enable()) && (ir_core->core_config.vdd_type == IR_EXTERNAL_VDD_TYPE)) {
-		wl2868c_voltage_output(WL2868C_LDO5, ir_core->core_config.vdd_max_vol);
-		pr_info("oplus_ir_core:wl2868c config value %d \n", ir_core->core_config.vdd_max_vol);
-	} else {
-		pr_info("oplus_ir_core:wl2868c error status!\n");
-	}
-#endif
 }
 
 static void disable_ir_vdd(struct ir_core *ir_core)
@@ -161,15 +136,6 @@ static void disable_ir_vdd(struct ir_core *ir_core)
 	if (ir_core->core_config.vdd_3v0 != NULL) {
 		regulator_disable(ir_core->core_config.vdd_3v0);
 	}
-
-#if defined (OPLUS_FEATURE_CAMERA_COMMON) && defined (CONFIG_OPLUS_PMIC_COMMON)
-	if ((true ==  wl2868c_test_i2c_enable()) && (ir_core->core_config.vdd_type == IR_EXTERNAL_VDD_TYPE)) {
-		pr_info("oplus_ir_core:wl2868c disable seq type EXT_LDO5");
-		wl2868c_ldo_set_disable(WL2868C_LDO5);
-	} else {
-		pr_info("oplus_ir_core: wl2868c ERROR status\n");
-	}
-#endif
 }
 
 static u32* append_pulse(struct ir_convert_data_t *convert_data, enum ir_interface hw_intf)

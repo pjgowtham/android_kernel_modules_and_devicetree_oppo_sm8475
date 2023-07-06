@@ -70,11 +70,6 @@ static char *sdio_press_data;
 #endif
 static bool log_stopped = 0;
 
-#define EXPLORER_TOKEN_INVALID_CHECK(token) 						\
-	if (token == NULL) {											\
-		pr_err("%s, null pointer error! return EINVAL.\n", __func__);	\
-		return -EINVAL;												\
-	}
 extern int explorer_load_fw(struct explorer_plat_data *epd,
                            const char *firmware_name, u32 addr);
 extern int explorer_boot(struct explorer_plat_data *epd);
@@ -1633,7 +1628,6 @@ static ssize_t explorer_ipc_mode_store(struct device *dev,
 	sptr = buf;
 	buf[count] = '\0';
 	token = strsep(&sptr, delim);
-	EXPLORER_TOKEN_INVALID_CHECK(token);
 	ret = kstrtou32(token, 0, &ipc_mode);
 	if (ret) {
 		pr_err("%s, get wrong ipc xfer mode.\n", __func__);
@@ -1666,21 +1660,18 @@ static ssize_t explorer_write_store(struct device *pdev,
 	sptr = buf;
 	buf[count] = '\0';
 	token = strsep(&sptr, delim);
-	EXPLORER_TOKEN_INVALID_CHECK(token);
 	ret = kstrtou32(token, 0, &addr);
 	if (ret) {
 		pr_err("%s, get wrong address.\n", __func__);
 		return ret;
 	}
 	token = strsep(&sptr, delim);
-	EXPLORER_TOKEN_INVALID_CHECK(token);
 	ret = kstrtou32(token, 0, &value);
 	if (ret) {
 		pr_err("%s, get wrong value.\n", __func__);
 		return ret;
 	}
 	token = strsep(&sptr, delim);
-	EXPLORER_TOKEN_INVALID_CHECK(token);
 	ret = kstrtou32(token, 0, &len);
 	if (ret) {
 		pr_err("%s, get wrong length.\n", __func__);
@@ -1789,7 +1780,6 @@ static ssize_t explorer_send_genl_store(struct device *pdev,
 	sptr = buf;
 	buf[count] = '\0';
 	token = strsep(&sptr, delim);
-	EXPLORER_TOKEN_INVALID_CHECK(token);
 	ret = kstrtou32(token, 0, &value);
 	if (ret) {
 		pr_err("%s, get wrong address.\n", __func__);
@@ -1797,7 +1787,6 @@ static ssize_t explorer_send_genl_store(struct device *pdev,
 	}
 
 	token = strsep(&sptr, delim);
-	EXPLORER_TOKEN_INVALID_CHECK(token);
 	ret = kstrtou32(token, 0, &len);
 	if (ret) {
 		pr_err("%s, get wrong length.\n", __func__);
@@ -1843,7 +1832,6 @@ static ssize_t explorer_set_gpio_store(struct device *pdev,
 	sptr = buf;
 	buf[count] = '\0';
 	token = strsep(&sptr, delim);
-	EXPLORER_TOKEN_INVALID_CHECK(token);
 	ret = kstrtou32(token, 0, &value);
 	if (ret) {
 		pr_err("%s, get wrong address.\n", __func__);
@@ -1888,7 +1876,6 @@ static ssize_t explorer_send_mbox_store(struct device *pdev,
 	buf[count] = '\0';
 
 	token = strsep(&sptr, delim);
-	EXPLORER_TOKEN_INVALID_CHECK(token);
 	ret = kstrtou32(token, 0, &is_sync);
 	pr_info("%s, is_sync = 0x%x.\n", __func__, is_sync);
 	if (ret) {
@@ -1897,7 +1884,6 @@ static ssize_t explorer_send_mbox_store(struct device *pdev,
 	}
 
 	token = strsep(&sptr, delim);
-	EXPLORER_TOKEN_INVALID_CHECK(token);
 	ret = kstrtou32(token, 0, &is_reply);
 	pr_info("%s, is_reply = 0x%x.\n", __func__, is_reply);
 	if (ret) {
@@ -1906,7 +1892,6 @@ static ssize_t explorer_send_mbox_store(struct device *pdev,
 	}
 
 	token = strsep(&sptr, delim);
-	EXPLORER_TOKEN_INVALID_CHECK(token);
 	ret = kstrtou32(token, 0, &is_end);
 	pr_info("%s, is_end = 0x%x.\n", __func__, is_end);
 	if (ret) {
@@ -1915,7 +1900,6 @@ static ssize_t explorer_send_mbox_store(struct device *pdev,
 	}
 
 	token = strsep(&sptr, delim);
-	EXPLORER_TOKEN_INVALID_CHECK(token);
 	ret = kstrtou32(token, 0, &cmd_id);
 	pr_info("%s, cmd_id = 0x%x.\n", __func__, cmd_id);
 	if (ret) {
@@ -1924,7 +1908,6 @@ static ssize_t explorer_send_mbox_store(struct device *pdev,
 	}
 
 	token = strsep(&sptr, delim);
-	EXPLORER_TOKEN_INVALID_CHECK(token);
 	ret = kstrtou32(token, 0, &data_len);
 	pr_info("%s, data_len = 0x%x.\n", __func__, data_len);
 	if (ret) {
@@ -1933,7 +1916,6 @@ static ssize_t explorer_send_mbox_store(struct device *pdev,
 	}
 
 	token = strsep(&sptr, delim);
-	EXPLORER_TOKEN_INVALID_CHECK(token);
 	ret = kstrtou32(token, 0, &data0);
 	pr_info("%s, data = 0x%x.\n", __func__, data0);
 	if (ret) {
@@ -1942,7 +1924,6 @@ static ssize_t explorer_send_mbox_store(struct device *pdev,
 	}
 
 	token = strsep(&sptr, delim);
-	EXPLORER_TOKEN_INVALID_CHECK(token);
 	ret = kstrtou32(token, 0, &data1);
 	pr_info("%s, data = 0x%x.\n", __func__, data1);
 	if (ret) {
@@ -2152,7 +2133,6 @@ static ssize_t explorer_sdio_write_store(struct device *pdev,
 	pr_info("zeku:%s, buf=%s\n",__func__,buf);
 
 	token = strsep(&sptr, delim);
-	EXPLORER_TOKEN_INVALID_CHECK(token);
 	ret = kstrtou32(token, 0, &addr);
 
 	if (ret) {
@@ -2161,7 +2141,6 @@ static ssize_t explorer_sdio_write_store(struct device *pdev,
 	}
 
 	token = strsep(&sptr, delim);
-	EXPLORER_TOKEN_INVALID_CHECK(token);
 	ret = kstrtou32(token, 0, &value);
 
 	if (ret) {
@@ -2249,7 +2228,6 @@ static ssize_t explorer_sdio_read_store(struct device *pdev,
 	sptr = buf;
 	buf[count] = '\0';
 	token = strsep(&sptr, delim);
-	EXPLORER_TOKEN_INVALID_CHECK(token);
 	ret = kstrtou32(token, 0, &addr);
 
 	if (ret) {

@@ -30,7 +30,6 @@
 
 #ifdef OPLUS_FEATURE_CHG_BASIC
 #define OEM_OPCODE_READ_BUFFER    0x10000
-#define BCC_OPCODE_READ_BUFFER    0x10003
 #define OEM_READ_WAIT_TIME_MS    500
 #define MAX_OEM_PROPERTY_DATA_SIZE 128
 #endif
@@ -118,24 +117,6 @@ enum ship_mode_type {
 	SHIP_MODE_PMIC,
 	SHIP_MODE_PACK_SIDE,
 };
-
-typedef enum {
-	DOUBLE_SERIES_WOUND_CELLS = 0,
-	SINGLE_CELL,
-	DOUBLE_PARALLEL_WOUND_CELLS,
-} SCC_CELL_TYPE;
-
-typedef enum {
-	TI_GAUGE = 0,
-	SW_GAUGE,
-	UNKNOWN_GAUGE_TYPE,
-} SCC_GAUGE_TYPE;
-
-#define DEVICE_BQ27541 0
-#define DEVICE_BQ27411 1
-#define DEVICE_BQ28Z610 2
-#define DEVICE_ZY0602 3
-#define DEVICE_ZY0603 4
 
 /* property ids */
 enum battery_property_id {
@@ -496,9 +477,6 @@ struct battery_chg_dev {
 	struct mutex    read_buffer_lock;
 	struct completion    oem_read_ack;
 	struct oem_read_buffer_resp_msg  read_buffer_dump;
-	struct mutex    bcc_read_buffer_lock;
-	struct completion    bcc_read_ack;
-	struct oem_read_buffer_resp_msg  bcc_read_buffer_dump;
 	int otg_scheme;
 	int otg_boost_src;
 	struct notifier_block	ssr_nb;
@@ -539,6 +517,5 @@ struct qcom_pmic {
 int oplus_adsp_voocphy_get_fast_chg_type(void);
 int oplus_adsp_voocphy_enable(bool enable);
 int oplus_adsp_voocphy_reset_again(void);
-int oplus_adsp_batt_curve_current(void);
 #endif
 #endif /*__SM8350_CHARGER_H*/

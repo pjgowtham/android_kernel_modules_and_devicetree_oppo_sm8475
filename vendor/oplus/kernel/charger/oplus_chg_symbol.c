@@ -53,7 +53,7 @@ DEF_SYMBOLE(int, qti_battery_charger_get_prop, const char *name, enum battery_ch
 ADD_FUNC_BODY(qti_battery_charger_get_prop, name, prop_id, val)
 #endif /* USE_ADSP */
 
-#if IS_ENABLED(CONFIG_OPLUS_CHARGER_MTK6895S) || IS_ENABLED(CONFIG_OPLUS_CHARGER_MTK6985S)
+#if IS_ENABLED(CONFIG_OPLUS_CHARGER_MTK6895S)
 
 #include "oplus_gauge.h"
 

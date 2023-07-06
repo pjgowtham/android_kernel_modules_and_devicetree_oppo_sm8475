@@ -18,9 +18,6 @@ obj-$(CONFIG_DUMP_TASKS_MEM)	+= dump_tasks_mem/
 obj-$(CONFIG_MEMLEAK_DETECT)	+= memleak_detect/
 #endif /* OPLUS_FEATURE_MEMLEAK_DETECT */
 
-#ifdef OPLUS_FEATURE_HYBRIDSWAP_ZRAM
-obj-$(CONFIG_HYBRIDSWAP_ZRAM) += hybridswap_zram/
-#endif
 
 obj-$(CONFIG_MAPPED_PROTECT) += memload_opt/mapped_protect/
 obj-$(CONFIG_PCPPAGES_OPT) += async_reclaim_opt/pcppages_opt/

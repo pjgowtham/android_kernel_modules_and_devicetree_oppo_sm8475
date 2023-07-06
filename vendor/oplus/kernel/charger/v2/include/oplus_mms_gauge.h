@@ -3,8 +3,6 @@
 
 #include <oplus_mms.h>
 
-#define GAUGE_INVALID_TEMP	(-400)
-
 enum gauge_topic_item {
 	GAUGE_ITEM_SOC,
 	GAUGE_ITEM_VOL,
@@ -21,15 +19,6 @@ enum gauge_topic_item {
 	GAUGE_ITEM_RESUME,
 	GAUGE_ITEM_HMAC,
 	GAUGE_ITEM_AUTH,
-	GAUGE_ITEM_REAL_TEMP,
-};
-
-enum gauge_type_id {
-	DEVICE_BQ27541,
-	DEVICE_BQ27411,
-	DEVICE_BQ28Z610,
-	DEVICE_ZY0602,
-	DEVICE_ZY0603,
 };
 
 int oplus_gauge_get_batt_mvolts(void);
@@ -49,6 +38,7 @@ int oplus_gauge_get_batt_qs(void);
 int oplus_gauge_get_batt_mvolts_2cell_max(void);
 int oplus_gauge_get_batt_mvolts_2cell_min(void);
 
+int oplus_gauge_get_batt_temperature(void);
 int oplus_gauge_get_batt_soc(void);
 int oplus_gauge_get_batt_current(void);
 int oplus_gauge_get_remaining_capacity(void);
@@ -78,12 +68,6 @@ bool oplus_gauge_is_locked(void);
 int oplus_gauge_get_batt_num(void);
 int oplus_gauge_get_batt_capacity_mah(struct oplus_mms *topic);
 
-int oplus_gauge_get_dod0(struct oplus_mms *mms, int index, int *val);
-int oplus_gauge_get_dod0_passed_q(struct oplus_mms *mms, int index, int *val);
-int oplus_gauge_get_qmax(struct oplus_mms *mms, int index, int *val);
-int oplus_gauge_get_qmax_passed_q(struct oplus_mms *mms, int index, int *val);
-int oplus_gauge_get_volt(struct oplus_mms *mms, int index, int *val);
-int oplus_gauge_get_gauge_type(struct oplus_mms *mms, int index, int *val);
 int oplus_gauge_get_bcc_parameters(char *buf);
 int oplus_gauge_fastchg_update_bcc_parameters(char *buf);
 int oplus_gauge_get_prev_bcc_parameters(char *buf);
@@ -94,5 +78,4 @@ bool oplus_gauge_afi_update_done(void);
 
 bool oplus_gauge_check_reset_condition(void);
 bool oplus_gauge_reset(void);
-bool is_support_parallel_battery(struct oplus_mms *topic);
 #endif /* __OPLUS_MMS_GAUGE_H__ */

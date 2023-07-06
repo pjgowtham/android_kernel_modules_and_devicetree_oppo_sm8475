@@ -40,7 +40,6 @@ endif
 
 oplus_chg-y += oplus_debug_info.o
 oplus_chg-y += oplus_charger.o
-oplus_chg-y += oplus_battery_log.o
 oplus_chg-y += oplus_gauge.o
 oplus_chg-y += oplus_vooc.o
 oplus_chg-y += oplus_pps.o
@@ -67,7 +66,6 @@ oplus_chg-y += vooc_ic/oplus_rt5125.o
 oplus_chg-y += vooc_ic/oplus_vooc_fw.o
 oplus_chg-y += voocphy/oplus_sy6529.o
 oplus_chg-y += voocphy/oplus_hl7138.o
-oplus_chg-y += voocphy/oplus_hl7138_slave.o
 oplus_chg-y += voocphy/oplus_sc8517.o
 oplus_chg-y += voocphy/oplus_sc8547.o
 oplus_chg-y += voocphy/oplus_sc8547_slave.o
@@ -92,7 +90,6 @@ oplus_chg-y += oplus_chg_comm.o
 oplus_chg-y += oplus_chg_track.o
 oplus_chg-y += ufcs_ic/oplus_sc8547a.o
 oplus_chg-y += oplus_ufcs.o
-oplus_chg-y += oplus_chg_exception.o
 oplus_chg-$(CONFIG_OPLUS_DYNAMIC_CONFIG_CHARGER) += op_wlchg_v2/oplus_chg_wls_cfg.o
 
 oplus_chg-$(CONFIG_OPLUS_SM8350_CHARGER) += charger_ic/oplus_battery_sm8350.o charger_ic/oplus_da9313.o charger_ic/oplus_mp2650.o voocphy/oplus_adsp_voocphy.o voocphy/oplus_voocphy.o wireless_ic/oplus_p922x.o
@@ -134,8 +131,7 @@ oplus_chg-$(CONFIG_OPLUS_SM8550_CHARGER) += charger_ic/oplus_battery_sm8550.o vo
 		chargepump_ic/oplus_bq25980_slave.o \
 		chargepump_ic/oplus_nu2205_master.o \
 		chargepump_ic/oplus_nu2205_slave.o \
-		charger_ic/oplus_mos_ctrl.o \
-		bob_ic/oplus_tps6128xd.o
+		charger_ic/oplus_mos_ctrl.o
 oplus_chg-$(CONFIG_OPLUS_SM6375R_CHARGER) += \
 		voocphy/oplus_voocphy.o \
 		charger_ic/oplus_sy6974b.o \
@@ -146,8 +142,7 @@ oplus_chg-$(CONFIG_OPLUS_SM6375R_CHARGER) += \
 		charger_ic/oplus_discrete_charger.o \
 		charger_ic/oplus_mp2650.o \
 		charger_ic/rt_pd_manager.o \
-		charger_ic/oplus_usbtemp.o \
-		charger_ic/oplus_sc6607_charger.o
+		charger_ic/oplus_usbtemp.o
 oplus_chg-$(CONFIG_OPLUS_CHARGER_MTK6983S) += \
 		charger_ic/oplus_mp2650.o \
 		charger_ic/oplus_usbtemp.o \
@@ -196,8 +191,7 @@ oplus_chg-$(CONFIG_OPLUS_CHARGER_MTK6789S) += \
 		op_wlchg_v2/oplus_chg_wls.o \
 		voocphy/oplus_voocphy.o \
 		charger_ic/oplus_battery_mtk6789S.o \
-		charger_ic/oplus_bq2589x_gki.o \
-		charger_ic/oplus_sgm41512_charger.o
+		charger_ic/oplus_bq2589x_gki.o
 oplus_chg-$(CONFIG_OPLUS_CHARGER_MTK6985S) += \
 		charger_ic/oplus_mp2650.o \
 		charger_ic/oplus_usbtemp.o \
@@ -269,7 +263,6 @@ obj-y      += voocphy/
 #obj-y   += oplus_voocphy.o
 
 obj-y	+= oplus_charger.o
-obj-y	+= oplus_battery_log.o
 obj-y	+= oplus_gauge.o
 obj-y	+= oplus_vooc.o
 obj-y	+= oplus_adapter.o
@@ -303,5 +296,4 @@ obj-y += oplus_chg_comm.o
 
 obj-y += ufcs_ic/
 obj-y += oplus_ufcs.o
-obj-y += oplus_chg_exception.o
 endif # gki_support

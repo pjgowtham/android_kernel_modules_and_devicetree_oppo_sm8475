@@ -149,12 +149,12 @@ int __attribute__((weak)) oplus_set_bcc_curr_to_voocphy(int bcc_curr)
 	return 0;
 }
 
+#ifdef CONFIG_OPLUS_CHARGER_MTK
 int __attribute__((weak)) oplus_force_get_subboard_temp(void)
 {
 	return 0;
 }
 
-#ifdef CONFIG_OPLUS_CHARGER_MTK
 int __attribute__((weak)) oplus_check_cc_mode(void)
 {
 	return -EINVAL;
@@ -2598,7 +2598,7 @@ struct oplus_chg_operations  mp2650_chg_ops = {
     .otg_disable = mp2650_otg_disable,
     .set_charging_term_disable = mp2650_set_chging_term_disable,
     .check_charger_resume = mp2650_check_charger_resume,
-#ifdef CONFIG_OPLUS_CHARGER_MTK
+#ifdef 		CONFIG_OPLUS_CHARGER_MTK
     .get_charger_type = mt_power_supply_type_check,
     .get_charger_volt = mp2650_get_charger_vol,
     .check_chrdet_status = oplus_mt_get_vbus_status,
@@ -2620,6 +2620,7 @@ struct oplus_chg_operations  mp2650_chg_ops = {
 #endif
     .get_charger_current = mp2650_get_ibus_current,
     .check_pdphy_ready = oplus_check_pdphy_ready,
+    .get_subboard_temp = oplus_force_get_subboard_temp,
     .check_cc_mode = oplus_check_cc_mode,
 #else /* CONFIG_OPLUS_CHARGER_MTK */
     .get_chargerid_volt = smbchg_get_chargerid_volt,
@@ -2638,7 +2639,6 @@ struct oplus_chg_operations  mp2650_chg_ops = {
     .get_rtc_soc = oplus_chg_get_shutdown_soc,
     .set_rtc_soc = oplus_chg_backup_soc,
 #endif /* CONFIG_OPLUS_CHARGER_MTK */
-	.get_subboard_temp = oplus_force_get_subboard_temp,
 #ifdef CONFIG_OPLUS_SHORT_C_BATT_CHECK
     .get_dyna_aicl_result = mp2650_chg_get_dyna_aicl_result,
 #endif

@@ -67,11 +67,11 @@ config OPLUS_SCHED_MT6895
 	  takes effect when a new core is selected.
 
 config OPLUS_FEATURE_CPU_JANKINFO
-	tristate "config oplus_schedinfo"
+	tristate "config cpu_jankinfo"
 	default n
 	depends on OPLUS_FEATURE_PERFORMANCE_SCHED
 	help
-	  define this config to enable oplus_schedinfo.
+	  define this config to enable cpu jankinfo.
 
 config OPLUS_FEATURE_FRAME_BOOST
 	tristate "frame boost"

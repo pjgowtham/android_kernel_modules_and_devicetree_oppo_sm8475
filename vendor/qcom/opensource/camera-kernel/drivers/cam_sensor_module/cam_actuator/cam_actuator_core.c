@@ -15,7 +15,6 @@
 #ifdef OPLUS_FEATURE_CAMERA_COMMON
 #include "oplus_cam_actuator_core.h"
 #include "oplus_cam_kevent_fb.h"
-#include "oplus_cam_actuator_dev.h"
 #endif
 
 int32_t cam_actuator_construct_default_power_setting(

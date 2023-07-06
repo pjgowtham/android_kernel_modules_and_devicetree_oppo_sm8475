@@ -19,14 +19,11 @@
 #include "dsi_clk.h"
 #include "dsi_pwr.h"
 #include "sde_dbg.h"
-#include "oplus_display_private_api.h"
 
 #define PANEL_REG_MAX_LENS 28
 #define PANEL_TX_MAX_BUF 512
 #define FFC_MODE_MAX_COUNT 4
 #define FFC_DELAY_MAX_FRAMES 10
-
-#define to_dsi_display(x) container_of(x, struct dsi_display, host)
 
 struct panel_id {
 	uint32_t DA;
@@ -124,14 +121,9 @@ int oplus_panel_update_pwm_turbo_lock(struct dsi_panel *panel, bool enabled);
 int oplus_display_panel_set_pwm_turbo(void *data);
 int oplus_display_panel_get_pwm_turbo(void *buf);
 int oplus_display_pwm_turbo_kickoff(void);
-int oplus_wait_for_vsync(struct dsi_panel *panel);
-int oplus_sde_early_wakeup(void);
-void oplus_save_te_timestamp(struct sde_connector *c_conn, ktime_t timestamp);
-int oplus_display_pwm_pulse_switch(void *dsi_panel, unsigned int bl_level);
+int oplus_set_frequency_pwm_pulse(struct dsi_panel *panel, u32 bl_lvl);
 int oplus_panel_tx_cmd_update(struct dsi_panel *panel, enum dsi_cmd_set_type *type);
 int oplus_display_update_dbv(struct dsi_panel *panel);
 int oplus_display_panel_set_demua(void);
-int oplus_set_pulse_switch(struct dsi_panel *panel, bool enable);
-void oplus_apollo_async_bl_delay(struct dsi_panel *panel);
 #endif /*_OPLUS_DISPLAY_PANEL_COMMON_H_*/
 

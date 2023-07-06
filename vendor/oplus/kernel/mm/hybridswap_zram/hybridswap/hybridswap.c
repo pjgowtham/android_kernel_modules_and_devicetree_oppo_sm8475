@@ -3,7 +3,7 @@
  * Copyright (C) 2020-2022 Oplus. All rights reserved.
  */
 
-#define pr_fmt(fmt) "[HYB_ZRAM]" fmt
+#define pr_fmt(fmt) "[HYBRIDSWAP]" fmt
 
 #include <linux/kernel.h>
 #include <linux/device.h>
@@ -711,11 +711,11 @@ ssize_t hybridswap_report_show(struct device *dev,
 	return hybridswap_error_record_show(buf);
 }
 
-static inline ssize_t meminfo_show(struct hybridswap_stat *stat, char *buf, ssize_t len)
+static inline meminfo_show(struct hybridswap_stat *stat, char *buf, ssize_t len)
 {
 	unsigned long eswap_total_pages = 0, eswap_compressed_pages = 0;
 	unsigned long eswap_used_pages = 0;
-	unsigned long zram_total_pags, orig_data_pages, zram_compressed;
+	unsigned long zram_total_pags, zram_used_pages, zram_compressed;
 	ssize_t size = 0;
 
 	if (!stat || !buf || !len)
@@ -724,13 +724,12 @@ static inline ssize_t meminfo_show(struct hybridswap_stat *stat, char *buf, ssiz
 	(void)hybridswap_stored_info(&eswap_total_pages, &eswap_compressed_pages);
 	eswap_used_pages = atomic64_read(&stat->stored_pages);
 #ifdef CONFIG_HYBRIDSWAP_SWAPD
-	zram_total_pags = max_nr_zram_total_used_limit();
+	zram_total_pags = get_nr_zram_total();
 #else
 	zram_total_pags = 0;
 #endif
-
-	zram_compressed = zram_total_compressed_size();
-	orig_data_pages = zram_used_pages();
+	zram_compressed = atomic64_read(&stat->zram_stored_size);
+	zram_used_pages = atomic64_read(&stat->zram_stored_pages);
 
 	size += scnprintf(buf + size, len - size, "%-32s %12llu KB\n",
 			  "EST:", eswap_total_pages << (PAGE_SHIFT - 10));
@@ -743,7 +742,7 @@ static inline ssize_t meminfo_show(struct hybridswap_stat *stat, char *buf, ssiz
 	size += scnprintf(buf + size, len - size, "%-32s %12llu KB\n",
 			  "ZSU_C:", zram_compressed >> 10);
 	size += scnprintf(buf + size, len - size, "%-32s %12llu KB\n",
-			  "ZSU_O:", orig_data_pages << (PAGE_SHIFT - 10));
+			  "ZSU_O:", zram_used_pages << (PAGE_SHIFT - 10));
 
 	return size;
 }
@@ -840,8 +839,8 @@ ssize_t hybridswap_meminfo_show(struct device *dev,
 {
 	struct hybridswap_stat *stat = NULL;
 
-	//if (!hybridswap_core_enabled())
-	//	return 0;
+	if (!hybridswap_core_enabled())
+		return 0;
 
 	stat = hybridswap_get_stat_obj();
 	if (unlikely(!stat)) {
@@ -2229,38 +2228,13 @@ void hybridswap_set_reclaim_in_enable(bool en)
 	atomic_set(&global_settings.reclaim_in_enable, en ? 1 : 0);
 }
 
-#ifdef CONFIG_CONT_PTE_HUGEPAGE
-bool hybridswap_core_enabled(void)
-{
-	/*FIXME: thp zram not support hybridswap reclaim in and fault out*/
-	return false;
-}
-
-struct huge_page_pool *get_cont_pte_pool(void)
-{
-	if(unlikely(!global_settings.zram->disk->android_kabi_reserved1)){
-		log_err("global_settings.zram->disk->android_kabi_reserved1 is 0\n");
-		return NULL;
-	}
-	return (struct huge_page_pool *)global_settings.zram->disk->android_kabi_reserved1;
-}
-
-#else
 bool hybridswap_core_enabled(void)
 {
 	return !!atomic_read(&global_settings.enable);
 }
-#endif
-
 
 void hybridswap_set_enable(bool en)
 {
-#ifdef CONFIG_CONT_PTE_HUGEPAGE
-	/*FIXME: thp zram not support hybridswap reclaim in and fault out*/
-	log_err("cont pte hugepage NOT support hybridswap!\n");
-	return;
-#endif
-
 	hybridswap_set_reclaim_in_enable(en);
 
 	if (!hybridswap_core_enabled())

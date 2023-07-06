@@ -15,10 +15,6 @@
 #include "sde_trace.h"
 #include <linux/msm_drm_notify.h>
 #include "../../../oplus/kernel/touchpanel/oplus_touchscreen_v2/touchpanel_notify/touchpanel_event_notify.h"
-#ifdef OPLUS_FEATURE_DISPLAY
-#include "oplus_display_temperature.h"
-#include "oplus_display_panel_common.h"
-#endif
 
 #if defined(CONFIG_PXLW_IRIS)
 #include "dsi_iris_api.h"
@@ -647,13 +643,6 @@ static int oplus_ofp_panel_cmd_set_nolock(void *dsi_panel, enum dsi_cmd_set_type
 			OFP_ERR("failed to set seed mode:PANEL_LOADING_EFFECT_OFF\n");
 		}
 		OPLUS_OFP_TRACE_END("dsi_panel_seed_mode");
-
-#ifdef OPLUS_FEATURE_DISPLAY
-		rc = oplus_display_temp_compensation_set(panel, false);
-		if (rc) {
-			OFP_ERR("failed to set temp compensation, rc=%d\n", rc);
-		}
-#endif
 		break;
 
 	case DSI_CMD_HBM_OFF:
@@ -666,10 +655,6 @@ static int oplus_ofp_panel_cmd_set_nolock(void *dsi_panel, enum dsi_cmd_set_type
 		if (oplus_display_panel_get_global_hbm_status()) {
 			oplus_display_panel_set_global_hbm_status(GLOBAL_HBM_DISABLE);
 		}
-
-#ifdef OPLUS_FEATURE_DISPLAY
-		panel->oplus_priv.pwm_power_on = true;
-#endif
 
 		/* recovery backlight level */
 		OPLUS_OFP_TRACE_BEGIN("dsi_panel_set_backlight");

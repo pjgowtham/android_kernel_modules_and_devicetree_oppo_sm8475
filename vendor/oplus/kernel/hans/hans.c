@@ -23,11 +23,9 @@
 #include "hans.h"
 
 #define NETLINK_PORT_HANS        (0x15356)
-#define PRINT_LIMIT              (1000)
 
 static atomic_t hans_deamon_port;
 bool trans_binder_debug = false;
-static unsigned long log_jiffies = 0;
 static int hans_handler(struct sk_buff *skb, struct genl_info *info);
 
 static const struct genl_ops hans_genl_ops[] = {
@@ -218,10 +216,8 @@ static int hans_handler(struct sk_buff *skb, struct genl_info *info)
                                         hans_network_cmd_parse(data->target_uid, 0 /* persistent */, data->pkg_cmd);
                                         break;
                                 }
-				if (printk_timed_ratelimit(&log_jiffies, PRINT_LIMIT)) {
-					printk(KERN_ERR "%s: --> PKG, uid = %d, persistent = %d, pkg_cmd = %d\n",
-						__func__, data->target_uid, data->persistent, data->pkg_cmd);
-				}
+                                printk(KERN_ERR "%s: --> PKG, uid = %d, persistent = %d, pkg_cmd = %d\n",
+                                        __func__, data->target_uid, data->persistent, data->pkg_cmd);
                                 hans_network_cmd_parse(data->target_uid, data->persistent, data->pkg_cmd);
                                 break;
 
@@ -230,9 +226,7 @@ static int hans_handler(struct sk_buff *skb, struct genl_info *info)
 				if (CHECK_KERN_SUPPORT_CGRPV2 == data->target_uid) {
 					hans_kern_support_cgrpv2();
 				} else {
-					if (printk_timed_ratelimit(&log_jiffies, PRINT_LIMIT)) {
-						printk(KERN_ERR "%s: --> FROZEN_TRANS, uid = %d\n", __func__, data->target_uid);
-					}
+					printk(KERN_ERR "%s: --> FROZEN_TRANS, uid = %d\n", __func__, data->target_uid);
 					hans_check_frozen_transcation(data->target_uid, data->type);
 				}
                                 break;

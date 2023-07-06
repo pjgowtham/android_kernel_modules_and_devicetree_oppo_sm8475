@@ -95,9 +95,6 @@ static int m1120_i2c_read_block(struct m1120_data_t *m1120_data, u8 addr, u8 *da
 	int err = 0;
 	struct i2c_client *client = NULL;
 	struct i2c_msg msgs[2] = {{0}, {0}};
-#if defined(CONFIG_OPLUS_FEATURE_FEEDBACK) || defined(CONFIG_OPLUS_FEATURE_FEEDBACK_MODULE)
-	char payload[1024] = {0x00};
-#endif
 
 	if (!m1120_data) {
 		TRI_KEY_ERR("m1120_data == NULL\n");
@@ -128,12 +125,6 @@ static int m1120_i2c_read_block(struct m1120_data_t *m1120_data, u8 addr, u8 *da
 
 	if (err < 0) {
 		TRI_KEY_ERR("i2c_transfer error: (%d %p %d) %d\n", addr, data, len, err);
-#if defined(CONFIG_OPLUS_FEATURE_FEEDBACK) || defined(CONFIG_OPLUS_FEATURE_FEEDBACK_MODULE)
-		scnprintf(payload, sizeof(payload),
-				   "NULL$$EventField@@UpHallRead$$FieldData@@Err%d$$detailData@@%d[%*ph]%d",
-				   err, addr, len, data, len);
-		oplus_kevent_fb(FB_TRI_STATE_KEY, TRIKEY_FB_BUS_TRANS_TYPE, payload);
-#endif
 		err = -EIO;
 	} else  {
 		err = 0;
@@ -149,9 +140,6 @@ static int m1120_i2c_write_block(struct m1120_data_t *m1120_data, u8 addr, u8 *d
 	int idx = 0;
 	int num = 0;
 	char buf[M1120_I2C_BUF_SIZE] = {0};
-#if defined(CONFIG_OPLUS_FEATURE_FEEDBACK) || defined(CONFIG_OPLUS_FEATURE_FEEDBACK_MODULE)
-	char payload[1024] = {0x00};
-#endif
 	struct i2c_client *client = NULL;
 
 	if (!m1120_data) {
@@ -175,15 +163,8 @@ static int m1120_i2c_write_block(struct m1120_data_t *m1120_data, u8 addr, u8 *d
 		buf[num++] = data[idx];
 
 	err = i2c_master_send(client, buf, num);
-	if (err < 0) {
+	if (err < 0)
 		TRI_KEY_ERR("send command error!! %d\n", err);
-#if defined(CONFIG_OPLUS_FEATURE_FEEDBACK) || defined(CONFIG_OPLUS_FEATURE_FEEDBACK_MODULE)
-		scnprintf(payload, sizeof(payload),
-				   "NULL$$EventField@@UpHallWrite$$FieldData@@Err%d$$detailData@@%d[%*ph]%d",
-				   err, addr, len, data, len);
-		oplus_kevent_fb(FB_TRI_STATE_KEY, TRIKEY_FB_BUS_TRANS_TYPE, payload);
-#endif
-	}
 
 	/*store reg written*/
 	if (len == 1) {
@@ -652,19 +633,6 @@ static int tri_key_m1120_parse_dt(struct device *dev,
 		atomic_set(&p_data->atm.delay, temp_val);
 	}
 
-	temp_val = 0;
-
-	rc = of_property_read_u32(np, "data_offect", &temp_val);
-	if (rc) {
-		TRI_KEY_ERR("not support data_offect\n");
-		p_data->data_offect = 0;
-	} else {
-		p_data->data_offect = 0;
-		if (temp_val > 0)
-			p_data->data_offect = temp_val;
-		TRI_KEY_ERR("get data_offect:%d\n", p_data->data_offect);
-	}
-
 	p_data->irq_en = of_property_read_bool(np, "magnachip,use-interrupt");
 
 	p_data->igpio = of_get_named_gpio_flags(dev->of_node,
@@ -712,12 +680,6 @@ static int m1120_get_data(short *data)
 		value = m1120_2byte_to_short(p_m1120_data, buf[2], buf[1]);
 	else
 		return err;
-
-	if (!!p_m1120_data->data_offect) {
-		value += p_m1120_data->data_offect;
-		TRI_KEY_LOG("new value=%d\n", value);
-	}
-
 	*data = value;
 
 	return 0;
@@ -776,13 +738,6 @@ static bool m1120_update_threshold(int position, short lowthd, short highthd)
 
 	TRI_KEY_LOG("m1120_up ,low:%d, high:%d\n", lowthd, highthd);
 
-	if (!!p_m1120_data->data_offect) {
-		lowthd  = lowthd  - p_m1120_data->data_offect;
-		highthd = highthd - p_m1120_data->data_offect;
-		TRI_KEY_LOG("new lowthd=%d highthd=%d\n", lowthd, highthd);
-	}
-
-	TRI_KEY_LOG("m1120_up ,true low:%d, high:%d\n", lowthd, highthd);
 	err = m1120_clear_interrupt(p_m1120_data);
 
 	if (p_m1120_data->reg.map.intsrs & M1120_DETECTION_MODE_INTERRUPT) {
@@ -922,23 +877,6 @@ static int m1120_set_reg_1(int reg, int val)
 	return 0;
 }
 
-int offect_data_handle(int offect)
-{
-	int ret = 0;
-
-	if (offect == READ_OFFECT) {
-		ret = p_m1120_data->data_offect;
-		TRI_KEY_ERR("UP->%s:READ OK [%d]",
-			__func__, offect, ret);
-	} else {
-		p_m1120_data->data_offect = offect;
-		TRI_KEY_ERR("UP->%s:WRITE OK [%d]",
-			__func__, offect, p_m1120_data->data_offect);
-	}
-
-	return ret;
-}
-
 struct dhall_operations  m1120_ups_ops = {
 	.get_data  = m1120_get_data,
 	.enable_irq = m1120_enable_irq,
@@ -948,8 +886,7 @@ struct dhall_operations  m1120_ups_ops = {
 	.update_threshold = m1120_update_threshold,
 	.dump_regs = m1120_dump_reg,
 	.set_reg = m1120_set_reg_1,
-	.is_power_on = m1120_is_power_on,
-	.offect_data_handle = offect_data_handle
+	.is_power_on = m1120_is_power_on
 };
 
 static int tri_key_m1120_i2c_drv_probe(struct i2c_client *client, const struct i2c_device_id *id)
@@ -1021,14 +958,6 @@ static int tri_key_m1120_i2c_drv_probe(struct i2c_client *client, const struct i
 			goto error_1;
 		}
 	}
-
-	/* set data offect if exist */
-	if (p_data->data_offect > 0) {
-		memset(hall_dev->data_offect_name, 0, 8);
-		strncpy(hall_dev->data_offect_name, OFFECT_UP, strlen(OFFECT_UP));
-		TRI_KEY_LOG("data_offect_name:%s\n", hall_dev->data_offect_name);
-	}
-
 	/*(7)request irq*/
 	if (gpio_is_valid(p_data->irq_gpio)) {
 		err = gpio_request(p_data->irq_gpio, "m1120_up_irq");

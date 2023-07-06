@@ -21,7 +21,6 @@
 int sa_audio_perf_enable = 1;
 int sa_audio_perf_status = 0;
 int sa_audio_debug_enable = 0;
-int sa_audio_threshold_util = 51;
 
 u64 perf_timer_slack_ns = 50000;
 struct proc_dir_entry *audio_dir;
@@ -340,47 +339,6 @@ static const struct proc_ops proc_status_fops = {
 	.proc_read		= proc_status_read,
 };
 
-static ssize_t proc_threshold_util_write(struct file *file, const char __user *buf,
-		size_t count, loff_t *ppos)
-{
-	char buffer[8];
-	int err, val;
-
-	memset(buffer, 0, sizeof(buffer));
-
-	if (count > sizeof(buffer) - 1)
-		count = sizeof(buffer) - 1;
-
-	if (copy_from_user(buffer, buf, count))
-		return -EFAULT;
-
-	buffer[count] = '\0';
-	err = kstrtoint(strstrip(buffer), 10, &val);
-	if (err)
-		return err;
-
-	sa_audio_threshold_util = val;
-
-	return count;
-}
-
-static ssize_t proc_threshold_util_read(struct file *file, char __user *buf,
-		size_t count, loff_t *ppos)
-{
-	char buffer[20];
-	size_t len = 0;
-
-	len = snprintf(buffer, sizeof(buffer), "threshold_util=%d\n", sa_audio_threshold_util);
-
-	return simple_read_from_buffer(buf, count, ppos, buffer, len);
-}
-
-static const struct proc_ops proc_threshold_util_fops = {
-	.proc_write		= proc_threshold_util_write,
-	.proc_read		= proc_threshold_util_read,
-	.proc_lseek		= default_llseek,
-};
-
 int oplus_sched_assist_audio_proc_init(struct proc_dir_entry *dir)
 {
 	struct proc_dir_entry *proc_node;
@@ -413,15 +371,7 @@ int oplus_sched_assist_audio_proc_init(struct proc_dir_entry *dir)
 		goto err_creat_audio_status;
 	}
 
-	proc_node = proc_create("threshold_util", 0666, audio_dir, &proc_threshold_util_fops);
-	if (!proc_node) {
-		ux_err("failed to create proc node threshold_util\n");
-		goto err_creat_audio_threshold_util;
-	}
-
 	return 0;
-err_creat_audio_threshold_util:
-	remove_proc_entry("threshold_util", audio_dir);
 err_creat_audio_status:
 	remove_proc_entry("debug", audio_dir);
 err_creat_audio_debug:
@@ -442,13 +392,12 @@ static void set_sched_boost(struct task_struct *p, bool enable)
 {
 	int ux_state = oplus_get_ux_state(p);
 	if (enable) {
-		oplus_set_ux_state_lock(p, (ux_state | UX_PRIORITY_AUDIO | SA_TYPE_LIGHT), true);
+		oplus_set_ux_state(p, (ux_state | SA_TYPE_LIGHT));
 	} else {
-		oplus_set_ux_state_lock(p, (ux_state & ~(SCHED_ASSIST_UX_PRIORITY_MASK | SA_TYPE_LIGHT)), true);
+		oplus_set_ux_state(p, (ux_state & ~SA_TYPE_LIGHT));
 	}
 #if IS_ENABLED(CONFIG_SCHED_WALT)
-	if (!is_task_util_over(p, sa_audio_threshold_util))
-		sched_set_wake_up_idle(p, enable);
+	sched_set_wake_up_idle(p, enable);
 #endif
 
 	if (unlikely(sa_audio_debug_enable)) {
@@ -470,7 +419,7 @@ void oplus_sched_assist_audio_perf_addIm(struct task_struct *task, int im_flag)
 
 	if (is_audio_task(task) && im_flag == IM_FLAG_NONE) {
 		set_sched_boost(task, false);
-	} else if (im_flag == IM_FLAG_AUDIO && !test_task_ux(task)) { /* if the task is already a ux task, we can't set it to audio task */
+	} else if (im_flag == IM_FLAG_AUDIO) {
 		set_sched_boost(task, true);
 	}
 }
@@ -480,7 +429,7 @@ void oplus_sched_assist_audio_latency_sensitive(struct task_struct *task, bool *
 	if (!is_audio_perf_status_on())
 		return;
 
-	if (*latency_sensitive || !is_audio_task(task) || is_task_util_over(task, sa_audio_threshold_util))
+	if (*latency_sensitive || !is_audio_task(task))
 		return;
 
 	*latency_sensitive = true;
@@ -558,8 +507,8 @@ bool oplus_sched_assist_audio_idle_balance(struct rq *this_rq)
 		if (!p)
 			goto skip;
 
-		/* we only allow audio-app group task (util must < sa_audio_threshold_util) doing this work */
-		if (!is_audio_task(p) || is_task_util_over(p, sa_audio_threshold_util))
+		/* we only allow audio-app group task doing this work */
+		if (!is_audio_task(p))
 			goto skip;
 
 		if (src_rq->clock - oplus_get_enqueue_time(p) < AUDIO_RT_PULL_THRESHOLD_NS)

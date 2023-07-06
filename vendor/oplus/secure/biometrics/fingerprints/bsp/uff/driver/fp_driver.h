@@ -146,8 +146,6 @@ struct fp_key {
 #define FP_IOC_REPORT_OLC_EVENT _IOW(FP_IOC_MAGIC, 24, struct fp_exception_info)
 #endif
 
-#define FP_IOC_RESET_GPIO_CTL_LOW _IO(FP_IOC_MAGIC, 25)
-#define FP_IOC_RESET_GPIO_CTL_HIGH _IO(FP_IOC_MAGIC, 26)
 // netlink function
 /************************************************/
 #define FP_NETLINK_ENABLE 1
@@ -213,7 +211,6 @@ int fp_power_reset(struct fp_dev *fp_dev);
 
 // hardware control
 int fp_hw_reset(struct fp_dev *fp_dev, unsigned int delay_ms);
-int fp_reset_gpio_ctl(struct fp_dev *fp_dev, uint32_t value);
 int fp_irq_num(struct fp_dev *fp_dev);
 
 // netlink funciton

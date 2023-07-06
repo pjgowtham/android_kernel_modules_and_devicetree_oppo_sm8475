@@ -12,7 +12,7 @@
  *
  */
 
-#define KMSG_COMPONENT "[HYB_ZRAM]"
+#define KMSG_COMPONENT "zram"
 #define pr_fmt(fmt) KMSG_COMPONENT ": " fmt
 
 #include <linux/module.h>
@@ -37,7 +37,6 @@
 
 #include "zram_drv.h"
 #include "zram_drv_internal.h"
-#include "chp_ext.h"
 #ifdef CONFIG_HYBRIDSWAP
 #include "hybridswap/hybridswap.h"
 #endif
@@ -50,19 +49,12 @@ static int zram_major;
 static const char *default_compressor = "lzo-rle";
 
 /* Module params (documentation at end) */
-#ifndef CONFIG_CONT_PTE_HUGEPAGE
 static unsigned int num_devices = 1;
-#else
-static unsigned int num_devices = 2; /* for basepage, and for hugepage */
-#endif
 /*
  * Pages that compress to sizes equals or greater than this are stored
  * uncompressed in memory.
  */
 static size_t huge_class_size;
-#ifdef CONFIG_CONT_PTE_HUGEPAGE_64K_ZRAM
-static size_t thp_huge_class_size;
-#endif
 
 static const struct block_device_operations zram_devops;
 static const struct block_device_operations zram_wb_devops;
@@ -70,10 +62,6 @@ static const struct block_device_operations zram_wb_devops;
 static void zram_free_page(struct zram *zram, size_t index);
 static int zram_bvec_read(struct zram *zram, struct bio_vec *bvec,
 				u32 index, int offset, struct bio *bio);
-#ifdef CONFIG_CONT_PTE_HUGEPAGE_64K_ZRAM
-static int __zram_bvec_read_thp(struct zram *zram, struct page *page, u32 index, u32 offset,
-				struct bio *bio, bool partial_io);
-#endif
 
 
 static int zram_slot_trylock(struct zram *zram, u32 index)
@@ -102,19 +90,6 @@ static inline bool is_partial_io(struct bio_vec *bvec)
 static inline bool is_partial_io(struct bio_vec *bvec)
 {
 	return false;
-}
-#endif
-
-#ifdef CONFIG_CONT_PTE_HUGEPAGE_64K_ZRAM
-#define THP_ZRAM_NUMBER 1      //ZRAM1 for thp zram
-bool is_thp_zram(struct zram *zram)
-{
-	return zram && zram->disk->first_minor == THP_ZRAM_NUMBER;
-}
-
-static inline bool is_thp_partial_io(struct bio_vec *bvec)
-{
-	return bvec->bv_len != CONT_PTE_SIZE;
 }
 #endif
 
@@ -147,14 +122,6 @@ static void update_position(u32 *index, int *offset, struct bio_vec *bvec)
 	*index  += (*offset + bvec->bv_len) / PAGE_SIZE;
 	*offset = (*offset + bvec->bv_len) % PAGE_SIZE;
 }
-
-#ifdef CONFIG_CONT_PTE_HUGEPAGE_64K_ZRAM
-static void update_position_thp(u32 *index, int *offset, struct bio_vec *bvec)
-{
-	*index  += (*offset + bvec->bv_len) / CONT_PTE_SIZE;
-	*offset = (*offset + bvec->bv_len) % CONT_PTE_SIZE;
-}
-#endif
 
 static inline void update_used_max(struct zram *zram,
 					const unsigned long pages)
@@ -199,30 +166,6 @@ static bool page_same_filled(void *ptr, unsigned long *element)
 
 	return true;
 }
-
-#ifdef CONFIG_CONT_PTE_HUGEPAGE_64K_ZRAM
-static bool thp_same_filled(void *ptr, unsigned long *element)
-{
-	unsigned long *page;
-	unsigned long val;
-	unsigned int pos, last_pos = CONT_PTE_SIZE / sizeof(*page) - 1;
-
-	page = (unsigned long *)ptr;
-	val = page[0];
-
-	if (val != page[last_pos])
-		return false;
-
-	for (pos = 1; pos < last_pos; pos++) {
-		if (val != page[pos])
-			return false;
-	}
-
-	*element = val;
-
-	return true;
-}
-#endif
 
 static ssize_t initstate_show(struct device *dev,
 		struct device_attribute *attr, char *buf)
@@ -276,14 +219,8 @@ static ssize_t mem_used_max_store(struct device *dev,
 
 	down_read(&zram->init_lock);
 	if (init_done(zram)) {
-#ifdef CONFIG_CONT_PTE_HUGEPAGE_64K_ZRAM
-		if(is_thp_zram(zram))
-			atomic_long_set(&zram->stats.max_used_pages,
-					thp_zs_get_total_pages(zram->mem_pool));
-		else
-#endif
-			atomic_long_set(&zram->stats.max_used_pages,
-					zs_get_total_pages(zram->mem_pool));
+		atomic_long_set(&zram->stats.max_used_pages,
+				zs_get_total_pages(zram->mem_pool));
 	}
 	up_read(&zram->init_lock);
 
@@ -718,24 +655,13 @@ static ssize_t writeback_store(struct device *dev,
 		/* Need for hugepage writeback racing */
 		zram_set_flag(zram, index, ZRAM_IDLE);
 		zram_slot_unlock(zram, index);
-#ifdef CONFIG_CONT_PTE_HUGEPAGE_64K_ZRAM
-		if(is_thp_zram(zram))
-			if (__zram_bvec_read_thp(zram, bvec->bv_page, index, 0, 0, NULL,true)) {
-				zram_slot_lock(zram, index);
-				zram_clear_flag(zram, index, ZRAM_UNDER_WB);
-				zram_clear_flag(zram, index, ZRAM_IDLE);
-				zram_slot_unlock(zram, index);
-				continue;
-			}
-		else
-#endif
-			if (zram_bvec_read(zram, &bvec, index, 0, NULL)) {
-				zram_slot_lock(zram, index);
-				zram_clear_flag(zram, index, ZRAM_UNDER_WB);
-				zram_clear_flag(zram, index, ZRAM_IDLE);
-				zram_slot_unlock(zram, index);
-				continue;
-			}
+		if (zram_bvec_read(zram, &bvec, index, 0, NULL)) {
+			zram_slot_lock(zram, index);
+			zram_clear_flag(zram, index, ZRAM_UNDER_WB);
+			zram_clear_flag(zram, index, ZRAM_IDLE);
+			zram_slot_unlock(zram, index);
+			continue;
+		}
 
 		bio_init(&bio, &bio_vec, 1);
 		bio_set_dev(&bio, zram->bdev);
@@ -1054,12 +980,7 @@ static ssize_t compact_store(struct device *dev,
 		return -EINVAL;
 	}
 
-#ifdef CONFIG_CONT_PTE_HUGEPAGE_64K_ZRAM
-	if(is_thp_zram(zram))
-		thp_zs_compact(zram->mem_pool);
-	else
-#endif
-		zs_compact(zram->mem_pool);
+	zs_compact(zram->mem_pool);
 	up_read(&zram->init_lock);
 
 	return len;
@@ -1096,46 +1017,23 @@ static ssize_t mm_stat_show(struct device *dev,
 
 	down_read(&zram->init_lock);
 	if (init_done(zram)) {
-#ifdef CONFIG_CONT_PTE_HUGEPAGE_64K_ZRAM
-		if(is_thp_zram(zram)) {
-			mem_used = thp_zs_get_total_pages(zram->mem_pool);
-			thp_zs_pool_stats(zram->mem_pool, &pool_stats);
-		} else{
-#endif
-			mem_used = zs_get_total_pages(zram->mem_pool);
-			zs_pool_stats(zram->mem_pool, &pool_stats);
-#ifdef CONFIG_CONT_PTE_HUGEPAGE_64K_ZRAM
-		}
-#endif
+		mem_used = zs_get_total_pages(zram->mem_pool);
+		zs_pool_stats(zram->mem_pool, &pool_stats);
 	}
 
 	orig_size = atomic64_read(&zram->stats.pages_stored);
 	max_used = atomic_long_read(&zram->stats.max_used_pages);
 
-#ifdef CONFIG_CONT_PTE_HUGEPAGE_64K_ZRAM
-	if(is_thp_zram(zram))
-		ret = scnprintf(buf, PAGE_SIZE,
-				"%8llu %8llu %8llu %8lu %8ld %8llu %8lu %8llu\n",
-				orig_size << CONT_PTE_SHIFT,
-				(u64)atomic64_read(&zram->stats.compr_data_size),
-				mem_used << CONT_PTE_SHIFT,
-				zram->limit_pages << CONT_PTE_SHIFT,
-				max_used << CONT_PTE_SHIFT,
-				(u64)atomic64_read(&zram->stats.same_pages),
-				atomic_long_read(&pool_stats.pages_compacted),
-				(u64)atomic64_read(&zram->stats.huge_pages));
-	else
-#endif
-		ret = scnprintf(buf, PAGE_SIZE,
-				"%8llu %8llu %8llu %8lu %8ld %8llu %8lu %8llu\n",
-				orig_size << PAGE_SHIFT,
-				(u64)atomic64_read(&zram->stats.compr_data_size),
-				mem_used << PAGE_SHIFT,
-				zram->limit_pages << PAGE_SHIFT,
-				max_used << PAGE_SHIFT,
-				(u64)atomic64_read(&zram->stats.same_pages),
-				atomic_long_read(&pool_stats.pages_compacted),
-				(u64)atomic64_read(&zram->stats.huge_pages));
+	ret = scnprintf(buf, PAGE_SIZE,
+			"%8llu %8llu %8llu %8lu %8ld %8llu %8lu %8llu\n",
+			orig_size << PAGE_SHIFT,
+			(u64)atomic64_read(&zram->stats.compr_data_size),
+			mem_used << PAGE_SHIFT,
+			zram->limit_pages << PAGE_SHIFT,
+			max_used << PAGE_SHIFT,
+			(u64)atomic64_read(&zram->stats.same_pages),
+			atomic_long_read(&pool_stats.pages_compacted),
+			(u64)atomic64_read(&zram->stats.huge_pages));
 	up_read(&zram->init_lock);
 
 	return ret;
@@ -1169,53 +1067,15 @@ static ssize_t debug_stat_show(struct device *dev,
 	ssize_t ret;
 
 	down_read(&zram->init_lock);
-#ifdef CONFIG_CONT_PTE_HUGEPAGE
-	ret = scnprintf(buf, PAGE_SIZE,
-			"version: %d\n%8llu %8llu %llu\n",
-			version,
-			(u64)atomic64_read(&zram->stats.writestall),
-			(u64)atomic64_read(&zram->stats.miss_free),
-			(u64)zram->disk->android_kabi_reserved1);
-#else
 	ret = scnprintf(buf, PAGE_SIZE,
 			"version: %d\n%8llu %8llu\n",
 			version,
 			(u64)atomic64_read(&zram->stats.writestall),
 			(u64)atomic64_read(&zram->stats.miss_free));
-#endif
 	up_read(&zram->init_lock);
 
 	return ret;
 }
-#ifdef CONFIG_CONT_PTE_HUGEPAGE_64K_ZRAM
-static ssize_t thp_debug_stat_show(struct device *dev,
-		struct device_attribute *attr, char *buf)
-{
-	struct zram *zram = dev_to_zram(dev);
-	ssize_t ret = 0;
-
-	down_read(&zram->init_lock);
-	if(is_thp_zram(zram)){
-		ret = scnprintf(buf, PAGE_SIZE,
-				"zram_bio write/read count:%8llu %8llu\n"\
-				"zram_rw  write/read count:%8llu %8llu\n"\
-				"zram_thp_write_alloc_all:%8llu\n"\
-				"zram_thp_write_alloc_fail:%8llu\n"\
-				"zram_thp_partial_read_count:%8llu\n",
-				(u64)atomic64_read(&zram->stats.zram_bio_write_count),
-				(u64)atomic64_read(&zram->stats.zram_bio_read_count),
-				(u64)atomic64_read(&zram->stats.zram_rw_write_count),
-				(u64)atomic64_read(&zram->stats.zram_rw_read_count),
-				(u64)atomic64_read(&zram->stats.zram_thp_write_alloc_all),
-				(u64)atomic64_read(&zram->stats.zram_thp_write_alloc_fail),
-				(u64)atomic64_read(&zram->stats.zram_thp_partial_read_count));
-	}
-	up_read(&zram->init_lock);
-
-	return ret;
-}
-
-#endif
 
 static DEVICE_ATTR_RO(io_stat);
 static DEVICE_ATTR_RO(mm_stat);
@@ -1223,28 +1083,17 @@ static DEVICE_ATTR_RO(mm_stat);
 static DEVICE_ATTR_RO(bd_stat);
 #endif
 static DEVICE_ATTR_RO(debug_stat);
-#ifdef CONFIG_CONT_PTE_HUGEPAGE_64K_ZRAM
-static DEVICE_ATTR_RO(thp_debug_stat);
-#endif
+
 static void zram_meta_free(struct zram *zram, u64 disksize)
 {
-#ifdef CONFIG_CONT_PTE_HUGEPAGE_64K_ZRAM
-	size_t num_pages = is_thp_zram(zram) ? (disksize >> CONT_PTE_SHIFT) : (disksize >> PAGE_SHIFT);
-#else
 	size_t num_pages = disksize >> PAGE_SHIFT;
-#endif
 	size_t index;
 
 	/* Free all pages that are still in this zram device */
 	for (index = 0; index < num_pages; index++)
 		zram_free_page(zram, index);
 
-#ifdef CONFIG_CONT_PTE_HUGEPAGE_64K_ZRAM
-	if(is_thp_zram(zram))
-		thp_zs_destroy_pool(zram->mem_pool);
-	else
-#endif
-		zs_destroy_pool(zram->mem_pool);
+	zs_destroy_pool(zram->mem_pool);
 	vfree(zram->table);
 }
 
@@ -1252,38 +1101,19 @@ static bool zram_meta_alloc(struct zram *zram, u64 disksize)
 {
 	size_t num_pages;
 
-#ifdef CONFIG_CONT_PTE_HUGEPAGE_64K_ZRAM
-	num_pages = is_thp_zram(zram) ? (disksize >> CONT_PTE_SHIFT) : (disksize >> PAGE_SHIFT);
-#else
 	num_pages = disksize >> PAGE_SHIFT;
-#endif
 	zram->table = vzalloc(array_size(num_pages, sizeof(*zram->table)));
 	if (!zram->table)
 		return false;
 
-#ifdef CONFIG_CONT_PTE_HUGEPAGE_64K_ZRAM
-	if(is_thp_zram(zram))
-		zram->mem_pool = thp_zs_create_pool(zram->disk->disk_name);
-	else
-#endif
-		zram->mem_pool = zs_create_pool(zram->disk->disk_name);
+	zram->mem_pool = zs_create_pool(zram->disk->disk_name);
 	if (!zram->mem_pool) {
 		vfree(zram->table);
 		return false;
 	}
 
-#ifdef CONFIG_CONT_PTE_HUGEPAGE_64K_ZRAM
-	if(is_thp_zram(zram)) {
-		if (!thp_huge_class_size)
-			thp_huge_class_size = thp_zs_huge_class_size(zram->mem_pool);
-	} else {
-#endif
-		if (!huge_class_size)
-			huge_class_size = zs_huge_class_size(zram->mem_pool);
-#ifdef CONFIG_CONT_PTE_HUGEPAGE_64K_ZRAM
-	}
-#endif
-
+	if (!huge_class_size)
+		huge_class_size = zs_huge_class_size(zram->mem_pool);
 	return true;
 }
 
@@ -1333,12 +1163,7 @@ static void zram_free_page(struct zram *zram, size_t index)
 	if (!handle)
 		return;
 
-#ifdef CONFIG_CONT_PTE_HUGEPAGE_64K_ZRAM
-	if(is_thp_zram(zram))
-		thp_zs_free(zram->mem_pool, handle);
-	else
-#endif
-		zs_free(zram->mem_pool, handle);
+	zs_free(zram->mem_pool, handle);
 
 	atomic64_sub(zram_get_obj_size(zram, index),
 			&zram->stats.compr_data_size);
@@ -1467,7 +1292,6 @@ static int __zram_bvec_write(struct zram *zram, struct bio_vec *bvec,
 	unsigned long alloced_pages;
 	unsigned long handle = 0;
 	unsigned int comp_len = 0;
-	unsigned int first_compress_comp_len = 0;
 	void *src, *dst, *mem;
 	struct zcomp_strm *zstrm;
 	struct page *page = bvec->bv_page;
@@ -1488,12 +1312,6 @@ compress_again:
 	zstrm = zcomp_stream_get(zram->comp);
 	src = kmap_atomic(page);
 	ret = zcomp_compress(zstrm, src, &comp_len);
-	if(unlikely(first_compress_comp_len) && (first_compress_comp_len != comp_len) ) {
-		pr_err("%s %d current->comm:%s bvec->bv_len:%ld bvec->bv_page:%lx src:%lx,dst:%lx comp_len = %u, first_compress_comp_len = %u, index:%d PageLocked:%d\n",
-			__func__, __LINE__,current->comm, bvec->bv_len, bvec->bv_page, src, zstrm->buffer,comp_len, first_compress_comp_len, index, PageLocked(bvec->bv_page));
-		//dump_page(page, "comp len change");
-		BUG_ON(1);
-	}
 	kunmap_atomic(src);
 
 	if (unlikely(ret)) {
@@ -1531,22 +1349,9 @@ compress_again:
 		handle = zs_malloc(zram->mem_pool, comp_len,
 				GFP_NOIO | __GFP_HIGHMEM |
 				__GFP_MOVABLE | __GFP_CMA);
-		if (!handle)
-			return -ENOMEM;
-
-		if (comp_len != PAGE_SIZE){
-			first_compress_comp_len = comp_len;
+		if (handle)
 			goto compress_again;
-		}
-
-		/*
-		 * If the page is not compressible, you need to acquire the lock and
-		 * execute the code below. The zcomp_stream_get() call is needed to
-		 * disable the cpu hotplug and grab the zstrm buffer back.
-		 * It is necessary that the dereferencing of the zstrm variable below
-		 * occurs correctly.
-		 */
-		zstrm = zcomp_stream_get(zram->comp);
+		return -ENOMEM;
 	}
 
 	alloced_pages = zs_get_total_pages(zram->mem_pool);
@@ -1642,361 +1447,6 @@ out:
 	return ret;
 }
 
-#ifdef CONFIG_CONT_PTE_HUGEPAGE_64K_ZRAM
-static int __zram_bvec_read_thp(struct zram *zram, struct page *page, u32 index, u32 offset,
-				struct bio *bio, bool partial_io)
-{
-	struct zcomp_strm *zstrm;
-	unsigned long handle;
-	unsigned int size;
-	void *src, *dst;
-	int ret;
-
-	zram_slot_lock(zram, index);
-
-#ifdef CONFIG_HYBRIDSWAP_CORE
-	if (likely(!bio)) {
-		ret = hybridswap_fault_out(zram, index);
-		if (unlikely(ret)) {
-			pr_err("search in hybridswap failed! err=%d, page=%u\n",
-					ret, index);
-			zram_slot_unlock(zram, index);
-			return ret;
-		}
-	}
-#endif
-
-	if (zram_test_flag(zram, index, ZRAM_WB)) {
-		struct bio_vec bvec;
-
-		zram_slot_unlock(zram, index);
-
-		bvec.bv_page = page;
-		bvec.bv_len = CONT_PTE_SIZE;
-		bvec.bv_offset = 0;
-		return read_from_bdev(zram, &bvec,
-				zram_get_element(zram, index),
-				bio, partial_io);
-	}
-
-	handle = zram_get_handle(zram, index);
-	if (!handle || zram_test_flag(zram, index, ZRAM_SAME)) {
-		unsigned long value;
-		void *mem;
-
-		value = handle ? zram_get_element(zram, index) : 0;
-		mem = kmap_atomic(page);
-		if (unlikely(partial_io)){
-			atomic64_add(1, &zram->stats.zram_thp_partial_read_count);
-			zram_fill_page(mem, PAGE_SIZE, value); //partial read
-		}else{
-			zram_fill_page(mem, CONT_PTE_SIZE, value);
-		}
-		kunmap_atomic(mem);
-		zram_slot_unlock(zram, index);
-		return 0;
-	}
-
-	size = zram_get_obj_size(zram, index);
-
-	if (size != CONT_PTE_SIZE)
-		zstrm = zcomp_stream_get(zram->comp);
-
-	src = thp_zs_map_object(zram->mem_pool, handle, ZS_MM_RO);
-
-	dst = kmap_atomic(page);
-	if (size == CONT_PTE_SIZE) {
-		if (unlikely(partial_io)) {
-			atomic64_add(1, &zram->stats.zram_thp_partial_read_count);
-			memcpy(dst, src + offset, PAGE_SIZE);	//partial read
-		}else {
-			memcpy(dst, src, CONT_PTE_SIZE);
-		}
-		ret = 0;
-	} else {
-		if (unlikely(partial_io)) {
-			//use zstrm->buffer to store decompress thp and copy page to dst
-			atomic64_add(1, &zram->stats.zram_thp_partial_read_count);
-			ret = zcomp_decompress_thp(zstrm, src, size, zstrm->buffer);
-			memcpy(dst, zstrm->buffer + offset, PAGE_SIZE);  //partial read
-		}else {
-			ret = zcomp_decompress_thp(zstrm, src, size, dst);
-		}
-		zcomp_stream_put(zram->comp);
-	}
-
-#if ENABLE_HUGEPAGE_ZRAM_DEBUG
-	pr_info("blues %s %d handle = %u index = %d offset=%d size:%d src:%lx, dst:%lx\n", __func__ , __LINE__ , handle, index,offset, size, src, dst);
-#endif
-	kunmap_atomic(dst);
-
-	thp_zs_unmap_object(zram->mem_pool, handle);
-
-	zram_slot_unlock(zram, index);
-
-	/* Should NEVER happen. Return bio error if it does. */
-	if (WARN_ON(ret)){
-		pr_err("Decompression failed! err=%d, page=%u offset=%u size:%u partial_io:%d\n", ret, index, offset, size,partial_io);
-		BUG_ON(1);
-	}
-
-	return ret;
-}
-
-static int __zram_bvec_write_thp(struct zram *zram, struct bio_vec *bvec,
-				u32 index, struct bio *bio)
-{
-	int ret = 0;
-	unsigned long alloced_pages;
-	unsigned long handle = 0;
-	unsigned int comp_len = 0;
-	void *src, *dst, *mem;
-	struct zcomp_strm *zstrm;
-	struct page *page = bvec->bv_page;
-	unsigned long element = 0;
-	enum zram_pageflags flags = 0;
-
-	mem = kmap_atomic(page);
-	if (thp_same_filled(mem, &element)) {
-		kunmap_atomic(mem);
-		/* Free memory associated with this sector now. */
-		flags = ZRAM_SAME;
-		atomic64_inc(&zram->stats.same_pages);
-		goto out;
-	}
-	kunmap_atomic(mem);
-
-	zstrm = zcomp_stream_get(zram->comp);
-	src = kmap_atomic(page);
-	ret = zcomp_compress_thp(zstrm, src, &comp_len);
-#if ENABLE_HUGEPAGE_ZRAM_DEBUG
-	pr_info("%s %d current->comm:%s bvec->bv_len:%ld bvec->bv_page:%lx src:%lx,dst:%lx comp_len = %d, index:%d\n", __func__, __LINE__,current->comm, bvec->bv_len, bvec->bv_page,src,zstrm->buffer,comp_len,index);
-#endif
-	kunmap_atomic(src);
-
-	if (unlikely(ret)) {
-		zcomp_stream_put(zram->comp);
-		pr_err("Compression failed! err=%d\n", ret);
-		thp_zs_free(zram->mem_pool, handle);
-		return ret;
-	}
-
-	if (comp_len >= thp_huge_class_size)
-		comp_len = CONT_PTE_SIZE;
-
-	/*
-	 * Handle allocation only has 1 paths, because hugepage not support alloc with direct reclaim.
-	 */
-	atomic64_add(1, &zram->stats.zram_thp_write_alloc_all);
-	handle = thp_zs_malloc(zram->mem_pool, comp_len,
-			(GFP_TRANSHUGE_LIGHT | __GFP_KSWAPD_RECLAIM|__GFP_HIGH) & ~__GFP_MOVABLE);
-	if (!handle) {
-		zcomp_stream_put(zram->comp);
-		atomic64_add(1, &zram->stats.zram_thp_write_alloc_fail);
-		return -ENOMEM;
-	}
-
-	alloced_pages = thp_zs_get_total_pages(zram->mem_pool);
-
-	update_used_max(zram, alloced_pages);
-
-	if (zram->limit_pages && alloced_pages > zram->limit_pages) {
-		zcomp_stream_put(zram->comp);
-		thp_zs_free(zram->mem_pool, handle);
-		return -ENOMEM;
-	}
-
-	dst = thp_zs_map_object(zram->mem_pool, handle, ZS_MM_WO);
-
-	src = zstrm->buffer;
-	if (comp_len == CONT_PTE_SIZE)
-		src = kmap_atomic(page);
-	memcpy(dst, src, comp_len);
-	if (comp_len == CONT_PTE_SIZE)
-		kunmap_atomic(src);
-
-	zcomp_stream_put(zram->comp);
-	thp_zs_unmap_object(zram->mem_pool, handle);
-	atomic64_add(comp_len, &zram->stats.compr_data_size);
-out:
-	/*
-	 * Free memory associated with this sector
-	 * before overwriting unused sectors.
-	 */
-	zram_slot_lock(zram, index);
-	zram_free_page(zram, index);
-
-	if (comp_len == CONT_PTE_SIZE) {
-		zram_set_flag(zram, index, ZRAM_HUGE);
-		atomic64_inc(&zram->stats.huge_pages);
-	}
-
-	if (flags) {
-		zram_set_flag(zram, index, flags);
-		zram_set_element(zram, index, element);
-	}  else {
-		zram_set_handle(zram, index, handle);
-		zram_set_obj_size(zram, index, comp_len);
-	}
-
-#ifdef CONFIG_HYBRIDSWAP_CORE
-	hybridswap_track(zram, index, page->mem_cgroup);
-#endif
-	zram_slot_unlock(zram, index);
-
-	/* Update stats */
-	atomic64_inc(&zram->stats.pages_stored);
-	return ret;
-}
-
-static int zram_bvec_write_thp(struct zram *zram, struct bio_vec *bvec,
-				u32 index, int offset, struct bio *bio)
-{
-	int ret;
-	struct page *page = NULL;
-	void *src;
-	struct bio_vec vec;
-
-	vec = *bvec;
-
-	//Only index 0(swap header) is thp partial io write
-	BUG_ON(is_thp_partial_io(bvec) && index);
-	if (is_thp_partial_io(bvec)) {
-		void *dst;
-		/*
-		 * This is a partial IO. We need to read the full page
-		 * before to write the changes.
-		 */
-		page = alloc_chp_ext_wrapper((GFP_TRANSHUGE_LIGHT |
-					      __GFP_KSWAPD_RECLAIM |
-					      __GFP_HIGH) & ~__GFP_MOVABLE,
-					     CHP_EXT_ZSMALLOC);
-		if (!page){
-			pr_err("%s alloc_cont_pte_hugepage fail\n", __func__);
-			return -ENOMEM;
-		}
-
-		ret = __zram_bvec_read_thp(zram, page, index, 0, bio, false);
-		if (ret)
-			goto out;
-
-		src = kmap_atomic(bvec->bv_page);
-		dst = kmap_atomic(page);
-		memcpy(dst + offset, src + bvec->bv_offset, bvec->bv_len);
-		kunmap_atomic(dst);
-		kunmap_atomic(src);
-
-		vec.bv_page = page;
-		vec.bv_len = CONT_PTE_SIZE;
-		vec.bv_offset = 0;
-	}
-
-	ret = __zram_bvec_write_thp(zram, &vec, index, bio);
-out:
-	if (is_thp_partial_io(bvec))
-		__free_pages_ext(page, compound_order(page));
-	return ret;
-}
-
-static int __zram_bvec_read_thp_pages(struct zram *zram, struct page *page, u32 index,
-							   struct bio *bio, bool partial_io, struct page **basepages)
-{
-	struct zcomp_strm *zstrm;
-	unsigned long handle;
-	unsigned int size;
-	void *src, *dst;
-	int ret;
-
-	dst = vmap(basepages, HPAGE_CONT_PTE_NR, VM_MAP, PAGE_KERNEL);
-	zram_slot_lock(zram, index);
-
-	if (zram_test_flag(zram, index, ZRAM_WB)) {
-		struct bio_vec bvec;
-
-		zram_slot_unlock(zram, index);
-
-		bvec.bv_page = page;
-		bvec.bv_len = CONT_PTE_SIZE;
-		bvec.bv_offset = 0;
-		return read_from_bdev(zram, &bvec,
-					   zram_get_element(zram, index),
-					   bio, partial_io);
-	}
-
-	handle = zram_get_handle(zram, index);
-	if (!handle || zram_test_flag(zram, index, ZRAM_SAME)) {
-		unsigned long value;
-
-		value = handle ? zram_get_element(zram, index) : 0;
-		zram_fill_page(dst, CONT_PTE_SIZE, value);
-		zram_slot_unlock(zram, index);
-		vunmap(dst);
-		return 0;
-	}
-
-	size = zram_get_obj_size(zram, index);
-
-	if (size != CONT_PTE_SIZE)
-		zstrm = zcomp_stream_get(zram->comp);
-
-	src = thp_zs_map_object(zram->mem_pool, handle, ZS_MM_RO);
-
-	if (size == CONT_PTE_SIZE) {
-		memcpy(dst, src, CONT_PTE_SIZE);
-		ret = 0;
-	} else {
-		ret = zcomp_decompress_thp(zstrm, src, size, dst);
-		zcomp_stream_put(zram->comp);
-	}
-
-#if ENABLE_HUGEPAGE_ZRAM_DEBUG
-	pr_info("%s %d handle = %u index = %d size:%d src:%lx, dst:%lx\n", __func__ , __LINE__ , handle, index, size, src, dst);
-#endif
-
-	thp_zs_unmap_object(zram->mem_pool, handle);
-
-	zram_slot_unlock(zram, index);
-	vunmap(dst);
-
-	/* Should NEVER happen. Return bio error if it does. */
-	if (WARN_ON(ret)){
-		pr_err("Decompression failed! err=%d, page=%u\n", ret, index);
-		BUG_ON(1);
-	}
-
-	return ret;
-}
-
-static int zram_bvec_rw_pages(struct zram *zram, struct bio_vec *bvec, u32 index,
-					   int offset, unsigned int op, struct bio *bio, struct page **basepages)
-{
-	int ret = 0;
-	int i;
-
-	if (!op_is_write(op)) {
-		atomic64_inc(&zram->stats.num_reads);
-		ret = __zram_bvec_read_thp_pages(zram, bvec->bv_page, index, bio, 0, basepages);
-		for(i = 0; i < HPAGE_CONT_PTE_NR;i ++)
-			flush_dcache_page(basepages[i]);
-	} else {
-		BUG_ON(1);
-		atomic64_inc(&zram->stats.num_writes);
-	}
-
-	zram_slot_lock(zram, index);
-	zram_accessed(zram, index);
-	zram_slot_unlock(zram, index);
-	if (unlikely(ret < 0)) {
-		if (!op_is_write(op))
-			atomic64_inc(&zram->stats.failed_reads);
-		else
-			atomic64_inc(&zram->stats.failed_writes);
-	}
-	return ret;
-}
-
-#endif
-
 /*
  * zram_bio_discard - handler on discard request
  * @index: physical block index in PAGE_SIZE units
@@ -2047,21 +1497,11 @@ static int zram_bvec_rw(struct zram *zram, struct bio_vec *bvec, u32 index,
 
 	if (!op_is_write(op)) {
 		atomic64_inc(&zram->stats.num_reads);
-#ifdef CONFIG_CONT_PTE_HUGEPAGE_64K_ZRAM
-		if(is_thp_zram(zram))
-			ret = __zram_bvec_read_thp(zram, bvec->bv_page, index, offset ,bio, is_thp_partial_io(bvec));
-		else
-#endif
-			ret = zram_bvec_read(zram, bvec, index, offset, bio);
+		ret = zram_bvec_read(zram, bvec, index, offset, bio);
 		flush_dcache_page(bvec->bv_page);
 	} else {
 		atomic64_inc(&zram->stats.num_writes);
-#ifdef CONFIG_CONT_PTE_HUGEPAGE_64K_ZRAM
-		if(is_thp_zram(zram))
-			ret = zram_bvec_write_thp(zram, bvec, index, offset, bio);
-		else
-#endif
-			ret = zram_bvec_write(zram, bvec, index, offset, bio);
+		ret = zram_bvec_write(zram, bvec, index, offset, bio);
 	}
 
 	zram_slot_lock(zram, index);
@@ -2086,25 +1526,13 @@ static void __zram_make_request(struct zram *zram, struct bio *bio)
 	struct bvec_iter iter;
 	unsigned long start_time;
 
-#ifdef CONFIG_CONT_PTE_HUGEPAGE_64K_ZRAM
-	if(is_thp_zram(zram)) {
-		index = bio->bi_iter.bi_sector >> SECTORS_PER_CONT_PTE_SHIFT;
-		offset = (bio->bi_iter.bi_sector &
-			  (SECTORS_PER_CONT_PTE - 1)) << SECTOR_SHIFT;
-	} else {
-#endif
-		index = bio->bi_iter.bi_sector >> SECTORS_PER_PAGE_SHIFT;
-		offset = (bio->bi_iter.bi_sector &
-			  (SECTORS_PER_PAGE - 1)) << SECTOR_SHIFT;
-#ifdef CONFIG_CONT_PTE_HUGEPAGE_64K_ZRAM
-	}
-#endif
+	index = bio->bi_iter.bi_sector >> SECTORS_PER_PAGE_SHIFT;
+	offset = (bio->bi_iter.bi_sector &
+		  (SECTORS_PER_PAGE - 1)) << SECTOR_SHIFT;
+
 	switch (bio_op(bio)) {
 	case REQ_OP_DISCARD:
 	case REQ_OP_WRITE_ZEROES:
-#ifdef CONFIG_CONT_PTE_HUGEPAGE_64K_ZRAM
-		BUG_ON(is_thp_zram(zram));
-#endif
 		zram_bio_discard(zram, index, offset, bio);
 		bio_endio(bio);
 		return;
@@ -2113,63 +1541,25 @@ static void __zram_make_request(struct zram *zram, struct bio *bio)
 	}
 
 	start_time = bio_start_io_acct(bio);
+	bio_for_each_segment(bvec, bio, iter) {
+		struct bio_vec bv = bvec;
+		unsigned int unwritten = bvec.bv_len;
 
-#ifdef CONFIG_CONT_PTE_HUGEPAGE_64K_ZRAM
-	if(is_thp_zram(zram)) {
-			unsigned int unwritten_new = 0;
-			struct bio_vec *pbv = bio->bi_io_vec;
-
-			unwritten_new = pbv->bv_len;
-			do {
-#if ENABLE_HUGEPAGE_ZRAM_DEBUG
-					pr_info("%s %d bio_op(bio):%lx unwritten:%d bvec.bv_len:%ld bvec->bv_page:%lx bio->bi_iter.bi_size1:%ld,bio->bi_iter.bi_sector:%ld index:%d offset:%d PageCont(bvec.bv_page):%d,PageTransHuge:%d, bio->bi_vcnt:%d\n",
-								__func__, __LINE__, bio_op(bio), unwritten_new, pbv->bv_len, pbv->bv_page, bio->bi_iter.bi_size, bio->bi_iter.bi_sector, index, offset,PageCont(pbv->bv_page),PageTransHuge(pbv->bv_page), bio->bi_vcnt);
-#endif
-					pbv->bv_len = min_t(unsigned int, CONT_PTE_SIZE - offset,
-									unwritten_new);
-					if (zram_bvec_rw(zram, pbv, index, offset,
-							 bio_op(bio), bio) < 0) {
-						bio->bi_status = BLK_STS_IOERR;
-						break;
-					}
-
-					pbv->bv_offset += pbv->bv_len;
-					unwritten_new -= pbv->bv_len;
-
-					update_position_thp(&index, &offset, pbv);
-				} while (unwritten_new);
-	}else {
-#endif
-		bio_for_each_segment(bvec, bio, iter) {
-			struct bio_vec bv = bvec;
-			unsigned int unwritten = bvec.bv_len;
-			do {
-				bv.bv_len = min_t(unsigned int, PAGE_SIZE - offset,
-								unwritten);
-				if (zram_bvec_rw(zram, &bv, index, offset,
-						 bio_op(bio), bio) < 0) {
-					bio->bi_status = BLK_STS_IOERR;
-					break;
-				}
+		do {
+			bv.bv_len = min_t(unsigned int, PAGE_SIZE - offset,
+							unwritten);
+			if (zram_bvec_rw(zram, &bv, index, offset,
+					 bio_op(bio), bio) < 0) {
+				bio->bi_status = BLK_STS_IOERR;
+				break;
+			}
 
 			bv.bv_offset += bv.bv_len;
 			unwritten -= bv.bv_len;
 
 			update_position(&index, &offset, &bv);
-			} while (unwritten);
-		}
-#ifdef CONFIG_CONT_PTE_HUGEPAGE_64K_ZRAM
+		} while (unwritten);
 	}
-#endif
-#ifdef CONFIG_CONT_PTE_HUGEPAGE_64K_ZRAM
-	if(is_thp_zram(zram)) {
-		if (!op_is_write(bio_op(bio))) {
-			atomic64_add(1, &zram->stats.zram_bio_read_count);
-		}else {
-			atomic64_add(1, &zram->stats.zram_bio_write_count);
-		}
-	}
-#endif
 	bio_end_io_acct(bio, start_time);
 	bio_endio(bio);
 }
@@ -2202,12 +1592,6 @@ static void zram_slot_free_notify(struct block_device *bdev,
 
 	zram = bdev->bd_disk->private_data;
 
-#ifdef CONFIG_CONT_PTE_HUGEPAGE_64K_ZRAM
-#if ENABLE_HUGEPAGE_ZRAM_DEBUG
-	if(is_thp_zram(zram))
-		pr_info("%s %d index:%d\n",__func__, __LINE__, index);
-#endif
-#endif
 	atomic64_inc(&zram->stats.notify_free);
 	if (!zram_slot_trylock(zram, index)) {
 		atomic64_inc(&zram->stats.miss_free);
@@ -2233,36 +1617,10 @@ static int zram_rw_page(struct block_device *bdev, sector_t sector,
 	struct zram *zram;
 	struct bio_vec bv;
 	unsigned long start_time;
-#ifdef CONFIG_CONT_PTE_HUGEPAGE_64K_ZRAM
-	struct page **basepages;
-	int i;
-#endif
 
-#ifdef CONFIG_CONT_PTE_HUGEPAGE_64K_ZRAM
+	if (PageTransHuge(page))
+		return -ENOTSUPP;
 	zram = bdev->bd_disk->private_data;
-	if(is_thp_zram(zram)) {
-		if (!valid_io_request(zram, sector, PageTransHuge(page) ? CONT_PTE_SIZE : PAGE_SIZE)) {
-			atomic64_inc(&zram->stats.invalid_io);
-			ret = -EINVAL;
-			goto out;
-		}
-
-		index = sector >> SECTORS_PER_CONT_PTE_SHIFT;
-		offset = (sector & (SECTORS_PER_CONT_PTE - 1)) << SECTOR_SHIFT;
-
-		bv.bv_page = page;
-		bv.bv_len = PageTransHuge(page) ? CONT_PTE_SIZE : PAGE_SIZE;
-		bv.bv_offset = 0;
-		#if ENABLE_HUGEPAGE_ZRAM_DEBUG
-		if(is_thp_zram(zram)) {
-			pr_info("%s %d op:%ld page:%lx, PageCont:%ld PageTransHuge(page):%ld sector:%ld index:%d offset:%d\n", __func__, __LINE__, op, page, PageCont(page),PageTransHuge(page),sector,index,offset);
-		}
-		#endif
-	} else {
-#endif
-		if (PageTransHuge(page))
-			return -ENOTSUPP;
-		zram = bdev->bd_disk->private_data;
 
 	if (!valid_io_request(zram, sector, PAGE_SIZE)) {
 		atomic64_inc(&zram->stats.invalid_io);
@@ -2276,33 +1634,10 @@ static int zram_rw_page(struct block_device *bdev, sector_t sector,
 	bv.bv_page = page;
 	bv.bv_len = PAGE_SIZE;
 	bv.bv_offset = 0;
-#ifdef CONFIG_CONT_PTE_HUGEPAGE_64K_ZRAM
-	}
-#endif
 
 	start_time = disk_start_io_acct(bdev->bd_disk, SECTORS_PER_PAGE, op);
-#ifdef CONFIG_CONT_PTE_HUGEPAGE_64K_ZRAM
-	/*read thp to basepages*/
-	if(is_thp_zram(zram) && PageContFallback(page)){
-		basepages = (struct page **)page->freelist;
-		ret = zram_bvec_rw_pages(zram, &bv, index, offset, op, NULL, basepages);
-	}else {
-		ret = zram_bvec_rw(zram, &bv, index, offset, op, NULL);
-	}
-#else
-		ret = zram_bvec_rw(zram, &bv, index, offset, op, NULL);
-#endif
+	ret = zram_bvec_rw(zram, &bv, index, offset, op, NULL);
 	disk_end_io_acct(bdev->bd_disk, op, start_time);
-#ifdef CONFIG_CONT_PTE_HUGEPAGE_64K_ZRAM
-	if(is_thp_zram(zram)) {
-		if (!op_is_write(op)) {
-			atomic64_add(1, &zram->stats.zram_rw_read_count);
-		}else {
-			atomic64_add(1, &zram->stats.zram_rw_write_count);
-		}
-	}
-#endif
-
 out:
 	/*
 	 * If I/O fails, just return error(ie, non-zero) without
@@ -2317,16 +1652,7 @@ out:
 
 	switch (ret) {
 	case 0:
-#ifdef CONFIG_CONT_PTE_HUGEPAGE_64K_ZRAM
-		if(is_thp_zram(zram) && PageContFallback(page)){
-			for(i = 0; i < HPAGE_CONT_PTE_NR;i++)
-				page_endio(basepages[i], op_is_write(op), 0);
-		}else {
-#endif
-			page_endio(page, op_is_write(op), 0);
-#ifdef CONFIG_CONT_PTE_HUGEPAGE_64K_ZRAM
-		}
-#endif
+		page_endio(page, op_is_write(op), 0);
 		break;
 	case 1:
 		ret = 0;
@@ -2394,11 +1720,7 @@ static ssize_t disksize_store(struct device *dev,
 		goto out_unlock;
 	}
 
-#ifdef CONFIG_CONT_PTE_HUGEPAGE_64K_ZRAM
-	comp = zcomp_create(zram->compressor, is_thp_zram(zram));
-#else
 	comp = zcomp_create(zram->compressor);
-#endif
 	if (IS_ERR(comp)) {
 		pr_err("Cannot initialise %s compressing backend\n",
 				zram->compressor);
@@ -2515,7 +1837,6 @@ static DEVICE_ATTR_RW(writeback_limit_enable);
 #ifdef CONFIG_HYBRIDSWAP
 static DEVICE_ATTR_RO(hybridswap_vmstat);
 static DEVICE_ATTR_RW(hybridswap_loglevel);
-static DEVICE_ATTR_RW(hybridswap_swapd_zram_init);
 static DEVICE_ATTR_RW(hybridswap_enable);
 #endif
 #ifdef CONFIG_HYBRIDSWAP_SWAPD
@@ -2559,7 +1880,6 @@ static struct attribute *zram_disk_attrs[] = {
 	&dev_attr_hybridswap_vmstat.attr,
 	&dev_attr_hybridswap_loglevel.attr,
 	&dev_attr_hybridswap_enable.attr,
-	&dev_attr_hybridswap_swapd_zram_init.attr,
 #endif
 #ifdef CONFIG_HYBRIDSWAP_SWAPD
 	&dev_attr_hybridswap_swapd_pause.attr,
@@ -2574,9 +1894,6 @@ static struct attribute *zram_disk_attrs[] = {
 	&dev_attr_hybridswap_dev_life.attr,
 	&dev_attr_hybridswap_quota_day.attr,
 	&dev_attr_hybridswap_zram_increase.attr,
-#endif
-#ifdef CONFIG_CONT_PTE_HUGEPAGE_64K_ZRAM
-	&dev_attr_thp_debug_stat.attr,
 #endif
 	NULL,
 };
@@ -2814,20 +2131,9 @@ static int __init zram_init(void)
 	if (ret < 0)
 		return ret;
 
-#ifdef CONFIG_CONT_PTE_HUGEPAGE_64K_ZRAM
-	ret = zcomp_create_thp_zstrm_buffer();
-	if (ret < 0) {
-		pr_err("Unable to create thp zstrm buffer\n");
-		return ret;
-	}
-#endif
-
 	ret = class_register(&zram_control_class);
 	if (ret) {
 		pr_err("Unable to register zram-control class\n");
-#ifdef CONFIG_CONT_PTE_HUGEPAGE_64K_ZRAM
-		zcomp_destroy_thp_zstrm_buffer();
-#endif
 		cpuhp_remove_multi_state(CPUHP_ZCOMP_PREPARE);
 		return ret;
 	}
@@ -2836,9 +2142,6 @@ static int __init zram_init(void)
 	zram_major = register_blkdev(0, "zram");
 	if (zram_major <= 0) {
 		pr_err("Unable to get major number\n");
-#ifdef CONFIG_CONT_PTE_HUGEPAGE_64K_ZRAM
-		zcomp_destroy_thp_zstrm_buffer();
-#endif
 		class_unregister(&zram_control_class);
 		cpuhp_remove_multi_state(CPUHP_ZCOMP_PREPARE);
 		return -EBUSY;
@@ -2861,19 +2164,12 @@ static int __init zram_init(void)
 	return 0;
 
 out_error:
-#ifdef CONFIG_CONT_PTE_HUGEPAGE_64K_ZRAM
-	zcomp_destroy_thp_zstrm_buffer();
-#endif
 	destroy_devices();
 	return ret;
 }
 
 static void __exit zram_exit(void)
 {
-#ifdef CONFIG_CONT_PTE_HUGEPAGE_64K_ZRAM
-	zcomp_destroy_thp_zstrm_buffer();
-#endif
-
 	destroy_devices();
 }
 

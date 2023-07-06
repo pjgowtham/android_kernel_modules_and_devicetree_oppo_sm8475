@@ -305,6 +305,14 @@
 					//39 00 00 40 00 00 06 F0 55 AA 52 08 01
 					//39 00 00 00 11 00 2A C3 DD 06 22 10 F4 00 06 20 10 FF 00 03 E8 10 06 1A 15 03 E8 10 06 1A 15 03 D3 12 06 51 19 03 D3 12 06 51 19 03 E8 10 06 1A 15
 				];
+				qcom,mdss-dsi-panel-info-switch-page-command = [
+					/*read panel info switch page 01*/
+					39 00 00 00 00 00 06 F0 55 AA 52 08 01
+				];
+				qcom,mdss-dsi-default-switch-page-command = [
+					/*switch default page*/
+					39 00 00 00 00 00 06 F0 55 AA 52 08 00
+				];
 
 				qcom,mdss-dsi-qsync-min-fps-0-command = [
 					/* SDC Auto Off */
@@ -401,6 +409,8 @@
 				qcom,mdss-dsi-bl-demura4-command-state = "dsi_hs_mode";
 				qcom,mdss-dsi-bl-demura5-command-state = "dsi_hs_mode";
 				qcom,mdss-dsi-bl-demura6-command-state = "dsi_hs_mode";
+				qcom,mdss-dsi-panel-info-switch-page-command-state = "dsi_lp_mode";
+				qcom,mdss-dsi-default-switch-page-command-state = "dsi_lp_mode";
 
 				qcom,lm-split = <620 620>;
 				qcom,compression-mode = "dsc";
@@ -665,6 +675,14 @@
 					//39 00 00 40 00 00 06 F0 55 AA 52 08 01
 					//39 00 00 00 11 00 2A C3 DD 06 22 10 F4 00 06 20 10 FF 00 03 E8 10 06 1A 15 03 E8 10 06 1A 15 03 D3 12 06 51 19 03 D3 12 06 51 19 03 E8 10 06 1A 15
 				];
+				qcom,mdss-dsi-panel-info-switch-page-command = [
+					/*read panel info switch page 01*/
+					39 00 00 00 00 00 06 F0 55 AA 52 08 01
+				];
+				qcom,mdss-dsi-default-switch-page-command = [
+					/*switch default page*/
+					39 00 00 00 00 00 06 F0 55 AA 52 08 00
+				];
 
 				qcom,mdss-dsi-qsync-min-fps-0-command = [
 					/* SDC Auto Off */
@@ -761,6 +779,8 @@
 				qcom,mdss-dsi-bl-demura4-command-state = "dsi_hs_mode";
 				qcom,mdss-dsi-bl-demura5-command-state = "dsi_hs_mode";
 				qcom,mdss-dsi-bl-demura6-command-state = "dsi_hs_mode";
+				qcom,mdss-dsi-panel-info-switch-page-command-state = "dsi_lp_mode";
+				qcom,mdss-dsi-default-switch-page-command-state = "dsi_lp_mode";
 
 				qcom,lm-split = <620 620>;
 				qcom,compression-mode = "dsc";
@@ -1022,6 +1042,14 @@
 					//39 00 00 40 00 00 06 F0 55 AA 52 08 01
 					//39 00 00 00 11 00 2A C3 DD 06 22 10 F4 00 06 20 10 FF 00 03 E8 10 06 1A 15 03 E8 10 06 1A 15 03 D3 12 06 51 19 03 D3 12 06 51 19 03 E8 10 06 1A 15
 				];
+				qcom,mdss-dsi-panel-info-switch-page-command = [
+					/*read panel info switch page 01*/
+					39 00 00 00 00 00 06 F0 55 AA 52 08 01
+				];
+				qcom,mdss-dsi-default-switch-page-command = [
+					/*switch default page*/
+					39 00 00 00 00 00 06 F0 55 AA 52 08 00
+				];
 
 				qcom,mdss-dsi-qsync-min-fps-0-command = [
 					/* SDC Auto Off */
@@ -1121,6 +1149,8 @@
 				qcom,mdss-dsi-bl-demura4-command-state = "dsi_hs_mode";
 				qcom,mdss-dsi-bl-demura5-command-state = "dsi_hs_mode";
 				qcom,mdss-dsi-bl-demura6-command-state = "dsi_hs_mode";
+				qcom,mdss-dsi-panel-info-switch-page-command-state = "dsi_lp_mode";
+				qcom,mdss-dsi-default-switch-page-command-state = "dsi_lp_mode";
 
 				qcom,lm-split = <620 620>;
 				qcom,compression-mode = "dsc";
@@ -1383,6 +1413,14 @@
 					//39 00 00 40 00 00 06 F0 55 AA 52 08 01
 					//39 00 00 00 00 00 2A C3 DD 06 22 10 F4 00 06 20 10 FF 00 03 E8 10 06 1A 15 03 E8 10 06 1A 15 03 D3 12 06 51 19 03 D3 12 06 51 19 03 D3 12 06 51 19
 				];
+				qcom,mdss-dsi-panel-info-switch-page-command = [
+					/*read panel info switch page 01*/
+					39 00 00 00 00 00 06 F0 55 AA 52 08 01
+				];
+				qcom,mdss-dsi-default-switch-page-command = [
+					/*switch default page*/
+					39 00 00 00 00 00 06 F0 55 AA 52 08 00
+				];
 
 				qcom,mdss-dsi-qsync-on-commands = [
 					/* SDC Auto On */
@@ -1488,6 +1526,8 @@
 				qcom,mdss-dsi-bl-demura4-command-state = "dsi_hs_mode";
 				qcom,mdss-dsi-bl-demura5-command-state = "dsi_hs_mode";
 				qcom,mdss-dsi-bl-demura6-command-state = "dsi_hs_mode";
+				qcom,mdss-dsi-panel-info-switch-page-command-state = "dsi_lp_mode";
+				qcom,mdss-dsi-default-switch-page-command-state = "dsi_lp_mode";
 
 				qcom,lm-split = <620 620>;
 				qcom,compression-mode = "dsc";
@@ -1754,6 +1794,15 @@
 					//39 00 00 40 00 00 06 F0 55 AA 52 08 01
 					//39 00 00 00 11 00 2A C3 DD 06 22 10 F4 00 06 20 10 FF 00 03 E8 10 06 1A 15 03 E8 10 06 1A 15 03 D3 12 06 51 19 03 D3 12 06 51 19 03 E8 10 06 1A 15
 				];
+				qcom,mdss-dsi-panel-info-switch-page-command = [
+					/*read panel info switch page 01*/
+					39 00 00 00 00 00 06 F0 55 AA 52 08 01
+				];
+				qcom,mdss-dsi-default-switch-page-command = [
+					/*switch default page*/
+					39 00 00 00 00 00 06 F0 55 AA 52 08 00
+				];
+
 				qcom,mdss-dsi-qsync-off-commands = [
 					15 00 00 40 00 00 02 2F 00
 					15 00 00 40 00 00 02 2F 30
@@ -1857,6 +1906,8 @@
 				qcom,mdss-dsi-aod-hbm-on-command-state = "dsi_hs_mode";
 				qcom,mdss-dsi-aod-hbm-off-command-state = "dsi_hs_mode";
 				qcom,mdss-dsi-timing-switch-command-state = "dsi_hs_mode";
+				qcom,mdss-dsi-bl-16plus-command-state = "dsi_hs_mode";
+				qcom,mdss-dsi-bl-3plus-command-state = "dsi_hs_mode";
 				qcom,mdss-dsi-on-command-state = "dsi_lp_mode";
 				qcom,mdss-dsi-off-command-state = "dsi_hs_mode";
 				qcom,mdss-dsi-hbm-on-command-state = "dsi_hs_mode";
@@ -1871,6 +1922,8 @@
 				qcom,mdss-dsi-bl-demura4-command-state = "dsi_hs_mode";
 				qcom,mdss-dsi-bl-demura5-command-state = "dsi_hs_mode";
 				qcom,mdss-dsi-bl-demura6-command-state = "dsi_hs_mode";
+				qcom,mdss-dsi-panel-info-switch-page-command-state = "dsi_lp_mode";
+				qcom,mdss-dsi-default-switch-page-command-state = "dsi_lp_mode";
 
 				qcom,lm-split = <620 620>;
 				qcom,compression-mode = "dsc";
@@ -1965,11 +2018,12 @@
 	//oplus,color_oplus_calibrate_status;
 	//oplus,apollo_backlight_enable;
 	//oplus,color_srgb_status;
+	/* serial num config */
 	oplus,dsi-serial-number-enabled;
-	//oplus,dsi-serial-number-lock;
-	oplus,dsi-serial-number-reg= <0xA3>;
-	oplus,dsi-serial-number-index= <11>;
-	oplus,dsi-serial-number-read-count= <18>;
+	oplus,dsi-serial-number-switch-page;
+	oplus,dsi-serial-number-index= <0>;
+	oplus,dsi-serial-number-reg= <0xD7>;
+	oplus,dsi-serial-number-read-count= <7>;
 };
 &dsi_oplus_senna_bc_nt37705_1240_2772_dsc_cmd_04 {
 	qcom,panel_voltage_vddi_name = "vddio";

@@ -27,7 +27,6 @@
 #include "voocphy/oplus_voocphy.h"
 #include "oplus_ufcs.h"
 #include "oplus_quirks.h"
-#include "oplus_battery_log.h"
 #ifndef CONFIG_DISABLE_OPLUS_FUNCTION
 #include <soc/oplus/system/oplus_project.h>
 #endif
@@ -1704,62 +1703,6 @@ static ssize_t bms_heat_temp_compensation_store(struct device *dev, struct devic
 }
 static DEVICE_ATTR_RW(bms_heat_temp_compensation);
 
-static ssize_t battery_log_head_show(struct device *dev, struct device_attribute *attr,
-		char *buf)
-{
-	struct oplus_configfs_device *chip = dev->driver_data;
-
-	if (!chip) {
-		chg_err("chip is NULL\n");
-		return -EINVAL;
-	}
-
-	if (oplus_battery_log_support() != true) {
-		chg_err("this proect dont support read battery log\n");
-		return -ENODEV;
-	}
-
-	return battery_log_common_operate(BATTERY_LOG_DUMP_LOG_HEAD,
-		buf, PAGE_SIZE);
-}
-static DEVICE_ATTR_RO(battery_log_head);
-
-static ssize_t battery_log_content_show(struct device *dev, struct device_attribute *attr,
-		char *buf)
-{
-	struct oplus_configfs_device *chip = dev->driver_data;
-
-	if (!chip) {
-		chg_err("chip is NULL\n");
-		return -EINVAL;
-	}
-
-	if (oplus_battery_log_support() != true) {
-		chg_err("this proect dont support read battery log\n");
-		return -ENODEV;
-	}
-
-	return battery_log_common_operate(BATTERY_LOG_DUMP_LOG_CONTENT,
-		buf, PAGE_SIZE);
-}
-static DEVICE_ATTR_RO(battery_log_content);
-
-static ssize_t pkg_name_store(struct device *dev, struct device_attribute *attr,
-		const char *buf, size_t count)
-{
-	struct oplus_chg_chip *chip = NULL;
-
-	chip = (struct oplus_chg_chip *)dev_get_drvdata(oplus_battery_dir);
-	if (!chip) {
-		chg_err("chip is NULL\n");
-		return -EINVAL;
-	}
-
-	oplus_chg_track_set_app_info(buf);
-	return count;
-}
-static DEVICE_ATTR_WO(pkg_name);
-
 static struct device_attribute *oplus_battery_attributes[] = {
 	&dev_attr_authenticate,
 	&dev_attr_battery_cc,
@@ -1829,9 +1772,6 @@ static struct device_attribute *oplus_battery_attributes[] = {
 	&dev_attr_aging_ffc_data,
 	&dev_attr_battery_charging_state,
 	&dev_attr_bms_heat_temp_compensation,
-	&dev_attr_battery_log_head,
-	&dev_attr_battery_log_content,
-	&dev_attr_pkg_name,
 	NULL
 };
 
@@ -2234,36 +2174,6 @@ static ssize_t boot_completed_show(struct device *dev, struct device_attribute *
 }
 static DEVICE_ATTR_RO(boot_completed);
 
-static ssize_t chg_olc_config_store(struct device *dev, struct device_attribute *attr, const char *buf, size_t count)
-{
-	struct oplus_chg_chip *chip = NULL;
-
-	chip = (struct oplus_chg_chip *)dev_get_drvdata(oplus_common_dir);
-	if (!chip) {
-		chg_err("chip is NULL\n");
-		return -EINVAL;
-	}
-
-	oplus_chg_olc_config_set(buf);
-	return count;
-}
-
-static ssize_t chg_olc_config_show(struct device *dev, struct device_attribute *attr, char *buf)
-{
-	struct oplus_chg_chip *chip = NULL;
-	int val = 0;
-
-	chip = (struct oplus_chg_chip *)dev_get_drvdata(oplus_common_dir);
-	if (!chip) {
-		chg_err("chip is NULL\n");
-		return -EINVAL;
-	}
-
-	val = oplus_chg_olc_config_get();
-	return sprintf(buf, "%d\n", val);
-}
-static DEVICE_ATTR_RW(chg_olc_config);
-
 static struct device_attribute *oplus_common_attributes[] = {
 #ifdef OPLUS_CHG_ADB_ROOT_ENABLE
 	&dev_attr_charge_parameter,
@@ -2271,7 +2181,6 @@ static struct device_attribute *oplus_common_attributes[] = {
 	&dev_attr_mutual_cmd,
 	&dev_attr_track_hidl,
 	&dev_attr_boot_completed,
-	&dev_attr_chg_olc_config,
 	NULL
 };
 #ifdef OPLUS_FEATURE_CHG_BASIC

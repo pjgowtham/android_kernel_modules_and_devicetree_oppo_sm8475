@@ -2991,8 +2991,7 @@ enum Tfa98xx_Error tfaRunSpeakerCalibration_result_v6(struct tfa_device *tfa, in
 		if ((tfa->mohm[0] < tfa->min_mohms) || (tfa->mohm[0] > tfa->max_mohms)) {
 			pr_info("speaker_resistance_fail\n");
 			if (ftm_mode == BOOT_MODE_FACTORY) {
-				/*Use strncpy instead of strcpy, fix coverity issue 20918*/
-				strncpy(ftm_spk_resistance, "speaker_resistance_fail", sizeof(ftm_spk_resistance));
+				strcpy(ftm_spk_resistance, "speaker_resistance_fail");
 			}
 			g_speaker_resistance_fail = true;
 
@@ -3302,8 +3301,7 @@ enum Tfa98xx_Error tfaRunWaitCalibration_v6(struct tfa_device *tfa, int *calibra
 	if (*calibrateDone != 1) {
 		#ifdef OPLUS_ARCH_EXTENDS
 		if (ftm_mode == BOOT_MODE_FACTORY) {
-			/*Use strncpy instead of strcpy, fix coverity issue 21147*/
-			strncpy(ftm_SpeakerCalibration, "calibration_fail", sizeof(ftm_SpeakerCalibration));
+			strcpy(ftm_SpeakerCalibration, "calibration_fail");
 		}
 		#endif /* OPLUS_ARCH_EXTENDS */
 		pr_err("Calibration failed! \n");

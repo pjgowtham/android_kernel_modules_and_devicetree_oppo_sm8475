@@ -3,7 +3,7 @@
  * Copyright (C) 2020-2022 Oplus. All rights reserved.
  */
 
-#define pr_fmt(fmt) "[HYB_ZRAM]" fmt
+#define pr_fmt(fmt) "[HYBRIDSWAP]" fmt
 
 #include <linux/slab.h>
 #include <linux/cpu.h>
@@ -212,6 +212,9 @@ static void tune_scan_type_hook(void *data, char *scan_balance)
 #endif /* CONFIG_HYBRIDSWAP_SWAPD */
 
 #ifdef CONFIG_HYBRIDSWAP_CORE
+	if (unlikely(!hybridswap_core_enabled()))
+		return;
+
 	/*real zram full, scan file only*/
 	if (!free_zram_is_ok()) {
 		*scan_balance = SCAN_FILE;
@@ -346,7 +349,6 @@ static int register_all_hooks(void)
 #if IS_ENABLED(CONFIG_OPLUS_FEATURE_HEALTHINFO)
 	REGISTER_HOOK(shrink_node_memcgs);
 #endif /* CONFIG_OPLUS_FEATURE_HEALTHINFO */
-
 	return 0;
 
 #if IS_ENABLED(CONFIG_OPLUS_FEATURE_HEALTHINFO)
@@ -851,7 +853,6 @@ static void hybridswap_disable(struct zram *zram)
 		return;
 	}
 
-#ifndef CONFIG_CONT_PTE_HUGEPAGE_64K_ZRAM
 #ifdef CONFIG_HYBRIDSWAP_CORE
 	hybridswap_core_disable();
 #endif
@@ -860,43 +861,6 @@ static void hybridswap_disable(struct zram *zram)
 	swapd_exit();
 #endif
 	hybridswap_enabled = false;
-#endif
-}
-
-ssize_t hybridswap_swapd_zram_init_show(struct device *dev,
-		struct device_attribute *attr, char *buf)
-{
-
-	int len = snprintf(buf, PAGE_SIZE, " %d \n",
-				hybridswap_swapd_zram_init_get());
-	return len;
-}
-
-ssize_t hybridswap_swapd_zram_init_store(struct device *dev,
-		struct device_attribute *attr, const char *buf, size_t len)
-{
-	int ret;
-	unsigned long val;
-	char *kbuf;
-	struct zram *zram;
-
-	kbuf = strstrip((char *)buf);
-	ret = kstrtoul(kbuf, 0, &val);
-	if (unlikely(ret)) {
-		log_err("val %s is invalid!\n", kbuf);
-
-		return -EINVAL;
-	}
-	log_err("val %d!\n", val);
-	mutex_lock(&hybridswap_enable_lock);
-	zram = dev_to_zram(dev);
-	if (val)
-		hybridswap_swapd_zram_init_set(zram);
-	mutex_unlock(&hybridswap_enable_lock);
-
-	if (ret == 0)
-		ret = len;
-	return ret;
 }
 
 ssize_t hybridswap_enable_show(struct device *dev,

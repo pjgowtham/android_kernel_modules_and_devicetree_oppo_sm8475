@@ -495,10 +495,8 @@ struct oplus_voocphy_manager {
 	struct device *slave_dev;
 	struct oplus_voocphy_operations *slave_ops;
 
-	int cfg_mode;
 	int irq_gpio;
 	int irq;
-	atomic_t suspended;
 
 	int switch1_gpio;
 	struct pinctrl *pinctrl;
@@ -601,6 +599,8 @@ struct oplus_voocphy_manager {
 	unsigned int vooc_cool_down_num;
 	unsigned int current_default;
 	unsigned int current_expect;
+	unsigned int current_bcc_max;
+	unsigned int current_bcc_min;
 	unsigned int current_bcc_ext;
 	unsigned int current_max;
 	unsigned int current_spec;
@@ -831,9 +831,7 @@ struct oplus_voocphy_manager {
 	bool high_curr_setting;
 	bool copycat_vooc_support;
 	int chip_id;
-	bool track_init_done;
 	enum oplus_voocphy_ovp_ctrl ovp_ctrl_cpindex;
-	unsigned char mos_status;
 };
 
 struct oplus_voocphy_operations {
@@ -867,7 +865,6 @@ struct oplus_voocphy_operations {
 	int (*clear_interrupts)(struct oplus_voocphy_manager *chip);
 	int (*get_voocphy_enable)(struct oplus_voocphy_manager *chip, u8 *data);
 	void (*dump_voocphy_reg)(struct oplus_voocphy_manager *chip);
-	int (*upload_cp_error)(struct oplus_voocphy_manager *chip, int err_type);
 	int (*set_dpdm_enable)(struct oplus_voocphy_manager *chip, bool enable);
 	int (*adsp_reset_voocphy)(void);
 	int (*get_chip_id)(void);
@@ -955,12 +952,11 @@ void oplus_voocphy_clear_cnt_info(void);
 void oplus_voocphy_get_chip(struct oplus_voocphy_manager **chip);
 void oplus_voocphy_dump_reg(void);
 bool oplus_voocphy_get_detach_unexpectly(void);
-int oplus_voocphy_get_max_abnormal_cnt(void);
 void oplus_voocphy_set_detach_unexpectly(bool val);
 int oplus_voocphy_enter_ship_mode(void);
 int oplus_voocphy_adjust_current_by_cool_down(int val);
 bool oplus_voocphy_get_btb_temp_over(void);
-int oplus_voocphy_upload_cp_error(int err_type);
+
 bool oplus_is_voocphy_charging(void);
 void oplus_voocphy_set_bcc_current(int val);
 int oplus_voocphy_get_bcc_max_curr(void);
@@ -974,5 +970,4 @@ void oplus_adsp_voocphy_force_svooc(int enable);
 int oplus_get_adsp_voocphy_enable(void);
 int oplus_voocphy_get_last_fast_chg_type(void);
 void oplus_voocphy_clear_last_fast_chg_type(void);
-void oplus_voocphy_clear_variables(void);
 #endif /* _OPLUS_VOOCPHY_H_ */

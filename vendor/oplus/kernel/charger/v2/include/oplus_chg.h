@@ -2,7 +2,7 @@
 #define __OPLUS_CHG_CORE_H__
 
 #include <linux/version.h>
-#include "oplus_chg_symbol.h"
+#include <oplus_chg_symbol.h>
 
 extern int oplus_log_level;
 
@@ -208,8 +208,6 @@ enum {
 	NOTIFY_SHORT_C_BAT_DYNAMIC_ERR_CODE5,
 	NOTIFY_CHARGER_TERMINAL,
 	NOTIFY_GAUGE_I2C_ERR,
-	NOTIFY_GAUGE_STUCK = 26,
-	NOTIFY_GAUGE_SOC_JUMP,
 };
 
 enum oplus_chg_err_code {

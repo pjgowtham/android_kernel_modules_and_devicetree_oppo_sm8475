@@ -96,8 +96,6 @@ config OPLUS_BALANCE_ANON_FILE_RECLAIM
 	  Swapping anonymous pages out to memory can be efficient enough to justify
 	  treating anonymous and file backed pages equally.
 
-source "mm/oplus_mm/thp_zsmalloc/Kconfig"
-
 source "mm/oplus_mm/hybridswap_zram/Kconfig"
 
 source "mm/oplus_mm/mm_osvelte/Kconfig"

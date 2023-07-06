@@ -34,7 +34,6 @@
 #include <trace/hooks/sys.h>
 #include <trace/hooks/mm.h>
 #include <linux/jiffies.h>
-#include "trace_sched_assist.h"
 #include <../../sched/sched_assist/sa_common.h>
 
 bool locking_protect_disable = false;
@@ -43,9 +42,6 @@ unsigned int locking_wakeup_preepmt_enable;
 
 static DEFINE_PER_CPU(int, prev_locking_state);
 static DEFINE_PER_CPU(int, prev_locking_depth);
-#define LK_STATE_UNLOCK  (0)
-#define LK_STATE_LOCK    (1)
-#define LK_STATE_INVALID (2)
 void locking_state_systrace_c(unsigned int cpu, struct task_struct *p)
 {
 	struct oplus_task_struct *ots;
@@ -58,10 +54,10 @@ void locking_state_systrace_c(unsigned int cpu, struct task_struct *p)
 	 * 2: ots not alloc，not be protected.
 	 */
 	if (IS_ERR_OR_NULL(ots)) {
-		locking_state = p->pid ? LK_STATE_INVALID : LK_STATE_UNLOCK;
+		locking_state = 2;
 		locking_depth = 0;
 	} else {
-		locking_state = (ots->locking_start_time > 0 ? LK_STATE_LOCK : LK_STATE_UNLOCK);
+		locking_state = (ots->locking_start_time > 0 ? 1 : 0);
 		locking_depth = ots->locking_depth;
 	}
 
@@ -136,7 +132,8 @@ void enqueue_locking_thread(struct rq *rq, struct task_struct *p)
 			list_add_tail(&ots->locking_entry, &orq->locking_thread_list);
 			orq->rq_locking_task++;
 			get_task_struct(p);
-			trace_enqueue_locking_thread(p, ots->locking_depth, orq->rq_locking_task);
+			if (unlikely(global_debug_enabled & DEBUG_FTRACE_LK))
+				trace_printk("comm=%-12s pid=%d rq_nr=%d\n", p->comm, p->pid, orq->rq_locking_task);
 		}
 	}
 }
@@ -158,7 +155,8 @@ void dequeue_locking_thread(struct rq *rq, struct task_struct *p)
 			if (pos == &ots->locking_entry) {
 				list_del_init(&ots->locking_entry);
 				orq->rq_locking_task--;
-				trace_dequeue_locking_thread(p, ots->locking_depth, orq->rq_locking_task);
+				if (unlikely(global_debug_enabled & DEBUG_FTRACE_LK))
+					trace_printk("comm=%-12s pid=%d rq_nr=%d\n", p->comm, p->pid, orq->rq_locking_task);
 				put_task_struct(p);
 				return;
 			}
@@ -229,7 +227,9 @@ void oplus_replace_locking_task_fair(struct rq *rq, struct task_struct **p,
 		*p = key_task;
 		*se = key_se;
 		*repick = true;
-		trace_select_locking_thread(key_task, key_ots->locking_depth, orq->rq_locking_task);
+		if (unlikely(global_debug_enabled & DEBUG_FTRACE_LK))
+			trace_printk("pick locking task=%-12s pid=%d locking_depth=%d\n",
+				key_task->comm, key_task->pid, key_ots->locking_depth);
 
 		break;
 	}

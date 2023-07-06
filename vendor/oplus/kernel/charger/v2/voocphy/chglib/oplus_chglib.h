@@ -25,7 +25,6 @@
 #define FAST_NOTIFY_ADAPTER_MODEL_FACTORY 0x5e
 #define FAST_NOTIFY_USER_EXIT_FASTCHG   0x5f
 #define FAST_NOTIFY_CHECK_FASTCHG_REAL_ALLOW 0x61
-#define FAST_NOTIFY_CURR_LIMIT_SMALL	0x62
 
 enum {
 	FASTCHG_CHARGER_TYPE_UNKOWN,
@@ -34,27 +33,17 @@ enum {
 
 struct hw_vphy_info {
 	/*other info*/
-	void (*vphy_set_vooc_current)(struct device *dev, int curr_ma);
+	void (*vphy_set_screenoff_current)(struct device *dev, int curr_ma);
 	void (*vphy_set_cool_down)(struct device *dev, int cool_down);
 	void (*vphy_set_chg_auto_mode)(struct device *dev, bool enable);
 	int (*vphy_get_data)(struct device *dev, bool *data, int read_count);
 	int (*vphy_get_fastchg_type)(struct device *dev);
 	int (*vphy_get_fastchg_notify_status)(struct device *dev);
 	int (*vphy_get_cp_vbat)(struct device *dev);
-	int (*vphy_set_bcc_curr)(struct device *dev, int val);
-	int (*vphy_get_bcc_max_curr)(struct device *dev);
-	int (*vphy_get_bcc_min_curr)(struct device *dev);
-	int (*vphy_get_bcc_exit_curr)(struct device *dev);
-	int (*vphy_get_get_fastchg_ing)(struct device *dev);
-	int (*vphy_get_bcc_temp_range)(struct device *dev);
 	void (*vphy_switch_chg_mode)(struct device *dev, int mode);
 	void (*vphy_set_pdqc_config)(struct device *dev);
 	void (*vphy_disconnect_detect)(struct device *dev);
 	void (*vphy_clear_status)(struct device *dev);
-	int (*vphy_get_batt_curve_current)(struct device *dev);
-	void (*vphy_reset_sleep)(struct device *dev);
-	void (*vphy_set_switch_curr_limit)(struct device *dev, int curr);
-	void (*vphy_clear_variables)(void);
 };
 
 struct vphy_chip {
@@ -62,29 +51,21 @@ struct vphy_chip {
 	struct oplus_mms *wired_topic;
 	struct mms_subscribe *wired_subs;
 	struct oplus_mms *gauge_topic;
-	struct oplus_mms *main_gauge_topic;
-	struct oplus_mms *sub_gauge_topic;
 	struct mms_subscribe *gauge_subs;
 	struct oplus_mms *common_topic;
 	struct mms_subscribe *common_subs;
 	struct oplus_mms *vooc_topic;
 	struct mms_subscribe *vooc_subs;
-	struct oplus_mms *parallel_topic;
-	struct mms_subscribe *parallel_subs;
 	struct oplus_chg_ic_dev *ic_dev;
 	struct hw_vphy_info *vinf;
 	struct work_struct check_charger_out_work;
 	struct work_struct set_current_work;
-	struct work_struct set_spec_current_work;
 	struct work_struct send_adapter_id_work;
 	struct work_struct send_absent_notify_work;
 	bool led_on;
 	bool is_pd_svooc_adapter;
-	bool is_wired_present;
 	int cool_down;
 	int fastchg_notify_event;
-	int switching_curr_limit;
-	bool switching_hw_status;
 };
 
 extern void oplus_chg_adc_switch_ctrl(void);
@@ -95,17 +76,13 @@ int oplus_chglib_suspend_charger(bool suspend);
 int oplus_chglib_vooc_fastchg_disable(const char *client_str, bool disable);
 int oplus_chglib_gauge_vbatt(struct device *dev);
 int oplus_chglib_gauge_pre_vbatt(struct device *dev);
-int oplus_chglib_gauge_main_vbatt(struct device *dev);
-int oplus_chglib_gauge_sub_vbatt(struct device *dev);
+int oplus_chglib_gauge_sub_vbatt(void);
 int oplus_chglib_gauge_current(struct device *dev);
-int oplus_chglib_gauge_main_current(struct device *dev);
-int oplus_chglib_gauge_sub_current(struct device *dev);
+int oplus_chglib_gauge_sub_current(void);
 int oplus_chglib_get_soc(struct device *dev);
 int oplus_chglib_get_shell_temp(struct device *dev);
 bool oplus_chglib_get_led_on(struct device *dev);
-bool oplus_chglib_get_switch_hw_status(struct device *dev);
 bool oplus_chglib_is_pd_svooc_adapter(struct device *dev);
-bool oplus_chglib_is_wired_present(struct device *dev);
 bool oplus_chglib_is_switch_temp_range(void);
 int oplus_chglib_get_battery_btb_temp_cal(void);
 int oplus_chglib_get_usb_btb_temp_cal(void);

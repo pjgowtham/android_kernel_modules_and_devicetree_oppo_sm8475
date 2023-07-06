@@ -178,6 +178,7 @@ extern int mt6375_set_hvdcp_to_5v(void);
 extern int mt6375_set_hvdcp_to_9v(void);
 extern void oplus_notify_hvdcp_detect_stat(void);
 extern void oplus_set_hvdcp_flag_clear(void);
+/*extern void oplus_chg_sc8571_error( int report_flag, int *buf, int ret);*/
 
 static void smbchg_enter_shipmode(struct oplus_chg_chip *chip);
 
@@ -4857,16 +4858,14 @@ bool oplus_pps_check_authen_data(void)
 	uint32_t  key[4] = {0};
 	uint32_t  new_key[4] = {0};
 	int i;
-	struct oplus_pps_chip *pps_chip;
 
-	pps_chip = oplus_pps_get_pps_chip();
 	memcpy(key, publick_key, sizeof(uint32_t) * 4);
 
 	setup_new_key(new_key,key);
 	tea_encrypt_process(new_key);
 	for(i=0;i < 4;i++){
 		if(pps_adapter_result[i] != pps_phone_result[i]) {
-			oplus_pps_track_upload_err_info(pps_chip, TRACK_PPS_ERR_AUTH_FAIL, i);
+			/*oplus_chg_sc8571_error((1 << PPS_REPORT_ERROR_AUTH_FAIL), NULL, i);*/
 			return false;
 		}
 	}
@@ -4917,14 +4916,12 @@ int oplus_pps_get_authenticate(void)
 }
 
 static bool oplus_pps_check_adapter_maxi(struct oplus_chg_chip *chip)
-{
+{	
 	int i, imax = 0, vmax = 0;
 	int ret;
 	struct tcp_dpm_custom_vdm_data vdm_data;
 	struct tcpc_device *tcpc_dev = tcpc_dev_get_by_name("type_c_port0");
-	struct oplus_pps_chip *pps_chip;
 
-	pps_chip = oplus_pps_get_pps_chip();
 	vdm_data.cnt = 2;
 	vdm_data.wait_resp = true;
 	vdm_data.vdos[0] = PD_UVDM_HDR(OPLUS_SVID, OPLUS_UVDM_POWER_CMD);
@@ -4944,15 +4941,15 @@ static bool oplus_pps_check_adapter_maxi(struct oplus_chg_chip *chip)
 			return true;
 		} else if ((imax > OPLUS_PPS_IMIN_V1) && (vmax >= OPLUS_EXTEND_VMIN )) {
 			oplus_pps_set_power(OPLUS_PPS_POWER_V1, imax, vmax);
-			oplus_pps_track_upload_err_info(pps_chip, TRACK_PPS_ERR_POWER_V1, imax);
+			/*oplus_chg_sc8571_error((1 << PPS_REPORT_ERROR_POWER_V1), NULL, imax);*/
 			return false;
 		} else {
-			oplus_pps_track_upload_err_info(pps_chip, TRACK_PPS_ERR_POWER_V0, imax);
-			oplus_pps_set_power(OPLUS_PPS_POWER_CLR, 0, 0);
+			/*oplus_chg_sc8571_error((1 << PPS_REPORT_ERROR_POWER_V0), NULL, imax);*/
+			oplus_pps_set_power(OPLUS_PPS_POWER_CLR,0 ,0);		
 			return false;
 		}
 	} else {
-		oplus_pps_track_upload_err_info(pps_chip, TRACK_PPS_ERR_UVDM_POWER, ret);
+		/*oplus_chg_sc8571_error((1 << PPS_REPORT_ERROR_UVDM_POWER), NULL, ret);*/
 		pr_info("%s tcpm_dpm_send_custom_vdm fail(%d)\n", __func__, ret);
 		return false;
 	}
@@ -4966,9 +4963,7 @@ static int oplus_pps_enable_extended_maxi(struct oplus_chg_chip *chip)
 	uint32_t extended_bit, extended_num;
 	struct tcp_dpm_custom_vdm_data vdm_data;
 	struct tcpc_device *tcpc_dev = tcpc_dev_get_by_name("type_c_port0");
-	struct oplus_pps_chip *pps_chip;
-
-	pps_chip = oplus_pps_get_pps_chip();
+	
 	vdm_data.cnt = 2;
 	vdm_data.wait_resp = true;
 	vdm_data.vdos[0] = PD_UVDM_HDR(OPLUS_SVID, OPLUS_UVDM_EXAPDO_CMD);
@@ -4982,7 +4977,7 @@ static int oplus_pps_enable_extended_maxi(struct oplus_chg_chip *chip)
 			pr_info("%s receive uvdm_data2[%d] = 0x%08x\n",
 					__func__, i, vdm_data.vdos[i]);
 	} else {
-		oplus_pps_track_upload_err_info(pps_chip, TRACK_PPS_ERR_EXTEND_MAXI, ret);
+		/*oplus_chg_sc8571_error((1 << PPS_REPORT_ERROR_EXTEND_MAXI), NULL, ret);*/
 		pr_info("%s tcpm_dpm_send_custom_vdm fail(%d)\n", __func__, ret);
 		return ret;
 	}
@@ -5019,12 +5014,9 @@ void oplus_pps_get_source_cap(void);
 void oplus_pps_get_adapter_status(struct oplus_chg_chip *chip)
 {
 	int ret = 0;
-	struct oplus_pps_chip *pps_chip;
-
-	pps_chip = oplus_pps_get_pps_chip();
-	ret = oplus_pps_tcpc_set_dr(chip, TYPEC_HOST);
+	ret = oplus_pps_tcpc_set_dr(chip, TYPEC_HOST);	
 	if (ret != 0) {
-		oplus_pps_track_upload_err_info(pps_chip, TRACK_PPS_ERR_DR_FAIL, ret);
+		/*oplus_chg_sc8571_error((1 << PPS_REPORT_ERROR_DR_FAIL), NULL, ret);*/
 		chg_err("oplus_pps_tcpc_set_dr ret = %d\n",ret);
 		return ;
 	}
@@ -7838,21 +7830,6 @@ int oplus_chg_get_pd_type(void)
 }
 EXPORT_SYMBOL(oplus_chg_get_pd_type);
 
-int oplus_check_cc_mode(void) {
-	int ret = -EINVAL;
-	const char *tcpc_name = "type_c_port0";
-	struct tcpc_device *tcpc_dev;
-
-	tcpc_dev = tcpc_dev_get_by_name(tcpc_name);
-	if (IS_ERR_OR_NULL(tcpc_dev)) {
-		chg_err("tcpc info error\n");
-		return ret;
-	}
-
-	ret = tcpm_inquire_typec_role(tcpc_dev);
-	return ret;
-}
-
 int oplus_chg_set_pps_config(int vbus_mv, int ibus_ma)
 {
 	int ret = 0;
@@ -8181,7 +8158,6 @@ struct oplus_chg_operations  mtk6375_chg_ops = {
 	.usb_disconnect = mt_usb_disconnect,
 	.get_platform_gauge_curve = oplus_chg_choose_gauge_curve,
 	.get_charger_current = oplus_mt6375_get_chg_ibus,
-	.check_cc_mode = oplus_check_cc_mode,
 #else /* CONFIG_OPLUS_CHARGER_MTK */
 	.get_charger_type = qpnp_charger_type_get,
 	.get_charger_volt = qpnp_get_prop_charger_voltage_now,

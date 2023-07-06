@@ -81,8 +81,7 @@ void fbg_android_rvh_cpufreq_transition(struct cpufreq_policy *policy);
 
 void fbg_get_frame_scale(unsigned long *frame_scale);
 void fbg_get_frame_busy(unsigned int *frame_busy);
-void fbg_get_prev_util(unsigned long *prev_util);
-void fbg_get_curr_util(unsigned long *curr_util);
+
 int info_show(struct seq_file *m, void *v);
 
 void update_ed_task_boost_mid_duration(unsigned int ed_task_boost_mid_duration_scale);

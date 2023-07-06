@@ -15,7 +15,6 @@
 #include <trace/hooks/sched.h>
 #include <trace/events/sched.h>
 #include <trace/events/task.h>
-#include <trace/events/power.h>
 
 #include <../kernel/oplus_cpu/sched/sched_assist/sa_common.h>
 #include "frame_boost.h"
@@ -110,42 +109,6 @@ EXPORT_SYMBOL_GPL(ed_task_boost_type);
 struct list_head cluster_head;
 #define for_each_sched_cluster(cluster) \
 	list_for_each_entry_rcu(cluster, &cluster_head, list)
-
-
-/*********************************
- * frame group lock function. Protect a task from inserting/deleting
- * into different groups.
- *********************************/
-#define TABLE_SZIE (1<<4)
-#define TABLE_MASK (TABLE_SZIE-1)
-static raw_spinlock_t spin_lock_table[TABLE_SZIE];
-
-static inline raw_spinlock_t *get_spin_lock(struct task_struct *p)
-{
-	unsigned long hash = (unsigned long)p;
-	hash = (hash >> PAGE_SHIFT) & TABLE_MASK;
-	return &spin_lock_table[hash];
-}
-
-static inline raw_spinlock_t * fbg_list_entry_lock(struct task_struct *p)
-{
-	raw_spinlock_t *lock = get_spin_lock(p);
-	raw_spin_lock(lock);
-	return lock;
-}
-
-static inline void fbg_list_entry_unlock(raw_spinlock_t *lock)
-{
-	raw_spin_unlock(lock);
-}
-
-void fbg_list_entry_lock_init(void)
-{
-	int i;
-
-	for (i = 0; i < TABLE_SZIE; i++)
-		raw_spin_lock_init(&spin_lock_table[i]);
-}
 
 /*********************************
  * frame group common function
@@ -388,12 +351,9 @@ static void remove_task_from_frame_group(struct task_struct *tsk)
 {
 	struct oplus_task_struct *ots = get_oplus_task_struct(tsk);
 	struct frame_group *grp = NULL;
-	raw_spinlock_t *lock;
 
 	grp = task_get_frame_group(ots);
 	frame_grp_with_lock_assert(grp);
-
-	lock = fbg_list_entry_lock(tsk);
 
 	if (ots->fbg_state & STATIC_FRAME_TASK) {
 		list_del_init(&ots->fbg_list);
@@ -418,8 +378,6 @@ static void remove_task_from_frame_group(struct task_struct *tsk)
 		put_task_struct(tsk);
 	}
 
-	fbg_list_entry_unlock(lock);
-
 	if (list_empty(&grp->tasks)) {
 		grp->preferred_cluster = NULL;
 		grp->available_cluster = NULL;
@@ -434,12 +392,9 @@ static void clear_all_static_frame_task(struct frame_group *grp)
 	struct oplus_task_struct *ots = NULL;
 	struct oplus_task_struct *tmp = NULL;
 	struct task_struct *p = NULL;
-	raw_spinlock_t *lock;
 
 	list_for_each_entry_safe(ots, tmp, &grp->tasks, fbg_list) {
 		p = ots_to_ts(ots);
-
-		lock = fbg_list_entry_lock(p);
 
 		if (ots->fbg_state & STATIC_FRAME_TASK) {
 			list_del_init(&ots->fbg_list);
@@ -463,8 +418,6 @@ static void clear_all_static_frame_task(struct frame_group *grp)
 
 			put_task_struct(p);
 		}
-
-		fbg_list_entry_unlock(lock);
 	}
 
 	if (list_empty(&grp->tasks)) {
@@ -479,14 +432,9 @@ static void clear_all_static_frame_task(struct frame_group *grp)
 static void add_task_to_frame_group(struct frame_group *grp, struct task_struct *task)
 {
 	struct oplus_task_struct *ots = get_oplus_task_struct(task);
-	raw_spinlock_t *lock;
 
-	lock = fbg_list_entry_lock(task);
-
-	if (ots->fbg_state || task->flags & PF_EXITING) {
-		fbg_list_entry_unlock(lock);
+	if (ots->fbg_state || task->flags & PF_EXITING)
 		return;
-	}
 
 	list_add(&ots->fbg_list, &grp->tasks);
 	ots->fbg_state = STATIC_FRAME_TASK;
@@ -498,8 +446,6 @@ static void add_task_to_frame_group(struct frame_group *grp, struct task_struct 
 
 	/* Static frame task's depth is zero */
 	ots->fbg_depth = 0;
-
-	fbg_list_entry_unlock(lock);
 }
 
 void set_ui_thread(int pid, int tid)
@@ -531,7 +477,6 @@ void set_ui_thread(int pid, int tid)
 
 	raw_spin_unlock_irqrestore(&def_fbg_lock, flags);
 }
-EXPORT_SYMBOL_GPL(set_ui_thread);
 
 void set_render_thread(int pid, int tid)
 {
@@ -562,13 +507,11 @@ void set_render_thread(int pid, int tid)
 
 	raw_spin_unlock_irqrestore(&def_fbg_lock, flags);
 }
-EXPORT_SYMBOL_GPL(set_render_thread);
 
 int get_frame_group_ui(void)
 {
 	return default_frame_boost_group.ui_pid;
 }
-EXPORT_SYMBOL_GPL(get_frame_group_ui);
 
 void set_sf_thread(int pid, int tid)
 {
@@ -599,7 +542,6 @@ void set_sf_thread(int pid, int tid)
 
 	raw_spin_unlock_irqrestore(&sf_fbg_lock, flags);
 }
-EXPORT_SYMBOL_GPL(set_sf_thread);
 
 void set_renderengine_thread(int pid, int tid)
 {
@@ -630,20 +572,6 @@ void set_renderengine_thread(int pid, int tid)
 
 	raw_spin_unlock_irqrestore(&sf_fbg_lock, flags);
 }
-EXPORT_SYMBOL_GPL(set_renderengine_thread);
-
-static inline bool is_same_uid(struct task_struct *p, struct task_struct *grp_ui)
-{
-	int p_uid, ui_uid;
-
-	if (p == NULL || grp_ui == NULL)
-		return false;
-
-	p_uid = task_uid(p).val;
-	ui_uid = task_uid(grp_ui).val;
-
-	return (p_uid == ui_uid);
-}
 
 bool add_rm_related_frame_task(int pid, int tid, int add, int r_depth, int r_width)
 {
@@ -654,12 +582,14 @@ bool add_rm_related_frame_task(int pid, int tid, int add, int r_depth, int r_wid
 
 	rcu_read_lock();
 	tsk = find_task_by_vpid(tid);
+	rcu_read_unlock();
+
 	if (!tsk)
 		goto out;
 
 	grp = &default_frame_boost_group;
 	raw_spin_lock_irqsave(&def_fbg_lock, flags);
-	if (add && is_same_uid(tsk, grp->ui)) {
+	if (add) {
 		get_task_struct(tsk);
 		add_task_to_frame_group(grp, tsk);
 	} else if (!add) {
@@ -673,10 +603,9 @@ bool add_rm_related_frame_task(int pid, int tid, int add, int r_depth, int r_wid
 
 	success = true;
 out:
-	rcu_read_unlock();
 	return success;
 }
-EXPORT_SYMBOL_GPL(add_rm_related_frame_task);
+
 bool add_task_to_game_frame_group(int tid, int add)
 {
 	unsigned long flags;
@@ -686,6 +615,8 @@ bool add_task_to_game_frame_group(int tid, int add)
 
 	rcu_read_lock();
 	tsk = find_task_by_vpid(tid);
+	rcu_read_unlock();
+
 	/* game_frame_boost_group not add binder task */
 	if (!tsk || strstr(tsk->comm, "binder:") || strstr(tsk->comm, "HwBinder:"))
 		goto out;
@@ -702,10 +633,8 @@ bool add_task_to_game_frame_group(int tid, int add)
 
 	success = true;
 out:
-	rcu_read_unlock();
 	return success;
 }
-EXPORT_SYMBOL_GPL(add_task_to_game_frame_group);
 
 /**********************************************************
  * add/remove dynamic binder frame task to/from frame group
@@ -714,7 +643,6 @@ static void remove_binder_from_frame_group(struct task_struct *binder)
 {
 	struct oplus_task_struct *ots_binder = get_oplus_task_struct(binder);
 	struct frame_group *grp = NULL;
-	raw_spinlock_t *lock;
 
 	if (!(ots_binder->fbg_state & BINDER_FRAME_TASK))
 		return;
@@ -722,20 +650,9 @@ static void remove_binder_from_frame_group(struct task_struct *binder)
 	grp = task_get_frame_group(ots_binder);
 	frame_grp_with_lock_assert(grp);
 
-	lock = fbg_list_entry_lock(binder);
-
-	/* judge two times for hot path performance */
-	if (!(ots_binder->fbg_state & BINDER_FRAME_TASK)) {
-		fbg_list_entry_unlock(lock);
-		return;
-	}
-
 	list_del_init(&ots_binder->fbg_list);
 	ots_binder->fbg_state = NONE_FRAME_TASK;
 	ots_binder->fbg_depth = INVALID_FBG_DEPTH;
-
-	fbg_list_entry_unlock(lock);
-
 	grp->binder_thread_num--;
 
 	if (grp->binder_thread_num < 0)
@@ -751,7 +668,6 @@ static void add_binder_to_frame_group(struct task_struct *binder, struct task_st
 	unsigned long flags;
 	struct frame_group *grp = NULL;
 	bool composition_part = false;
-	raw_spinlock_t *lock;
 
 	if (binder == NULL || from == NULL)
 		return;
@@ -783,14 +699,6 @@ static void add_binder_to_frame_group(struct task_struct *binder, struct task_st
 		goto unlock;
 	}
 
-	lock = fbg_list_entry_lock(binder);
-
-	/* judge two times for hot path performance */
-	if (ots_binder->fbg_state) {
-		fbg_list_entry_unlock(lock);
-		goto unlock;
-	}
-
 	get_task_struct(binder);
 	list_add(&ots_binder->fbg_list, &grp->tasks);
 	ots_binder->fbg_state = BINDER_FRAME_TASK;
@@ -799,9 +707,6 @@ static void add_binder_to_frame_group(struct task_struct *binder, struct task_st
 		ots_binder->fbg_state |= FRAME_COMPOSITION;
 
 	ots_binder->fbg_depth = ots_from->fbg_depth + 1;
-
-	fbg_list_entry_unlock(lock);
-
 	grp->binder_thread_num++;
 
 unlock:
@@ -960,7 +865,6 @@ void set_frame_group_window_size(unsigned int window_size)
 	grp->window_size = window_size;
 	raw_spin_unlock_irqrestore(&game_fbg_lock, flags);
 }
-EXPORT_SYMBOL_GPL(set_frame_group_window_size);
 
 #define DIV64_U64_ROUNDUP(X, Y) div64_u64((X) + (Y - 1), Y)
 static inline u64 scale_exec_time(u64 delta, struct rq *rq)
@@ -1089,7 +993,6 @@ int rollover_frame_group_window(int group_id)
 
 	return 0;
 }
-EXPORT_SYMBOL_GPL(rollover_frame_group_window);
 
 /**************************************
  * cpu frequence adjust for frame group
@@ -1288,35 +1191,12 @@ static unsigned long update_freq_policy_util(struct frame_group *grp, u64 wallcl
 	return frame_uclamp(frame_util);
 }
 
-void fbg_get_prev_util(unsigned long *prev_util)
-{
-	struct frame_group *grp = &default_frame_boost_group;
-
-	if (!grp->frame_zone)
-		return;
-
-	*prev_util = get_frame_putil(grp->prev_window_scale, grp->frame_zone);
-}
-EXPORT_SYMBOL_GPL(fbg_get_prev_util);
-
-void fbg_get_curr_util(unsigned long *curr_util)
-{
-	struct frame_group *grp = &default_frame_boost_group;
-
-	if (!grp->frame_zone)
-		return;
-
-	*curr_util = get_frame_putil(grp->curr_window_scale, grp->frame_zone);
-}
-EXPORT_SYMBOL_GPL(fbg_get_curr_util);
-
 void fbg_get_frame_scale(unsigned long *frame_scale)
 {
 	struct frame_group *grp = &game_frame_boost_group;
 
 	*frame_scale = grp->prev_window_scale;
 }
-EXPORT_SYMBOL_GPL(fbg_get_frame_scale);
 
 void fbg_get_frame_busy(unsigned int *frame_busy)
 {
@@ -1324,7 +1204,6 @@ void fbg_get_frame_busy(unsigned int *frame_busy)
 
 	*frame_busy = grp->window_busy;
 }
-EXPORT_SYMBOL_GPL(fbg_get_frame_busy);
 
 bool check_putil_over_thresh(unsigned long thresh)
 {
@@ -1334,11 +1213,9 @@ bool check_putil_over_thresh(unsigned long thresh)
 	putil = get_frame_putil(grp->curr_window_scale, FRAME_ZONE);
 	return putil >= thresh;
 }
-EXPORT_SYMBOL_GPL(check_putil_over_thresh);
 
 static bool valid_freq_querys(const struct cpumask *query_cpus, struct frame_group *grp)
 {
-	int count = 0;
 	struct task_struct *p = NULL;
 #if (0)
 	cpumask_t grp_cpus = CPU_MASK_NONE;
@@ -1376,9 +1253,6 @@ static bool valid_freq_querys(const struct cpumask *query_cpus, struct frame_gro
 		rq = cpu_rq(cpu);
 		if (task_running(rq, p))
 			cpumask_set_cpu(task_cpu(p), &on_cpus);
-
-		/* detect infinite loop */
-		BUG_ON(++count > 1000);
 	}
 
 	return cpumask_intersects(&on_cpus, query_cpus);
@@ -1547,7 +1421,6 @@ unlock:
 
 	return ret;
 }
-EXPORT_SYMBOL_GPL(default_group_update_cpufreq);
 
 bool sf_composition_update_cpufreq(struct task_struct *tsk)
 {
@@ -1787,23 +1660,15 @@ static void update_group_nr_running(struct task_struct *p, int event)
 	raw_spin_unlock_irqrestore(lock, flags);
 }
 
-
 void fbg_android_rvh_schedule_handler(struct task_struct *prev,
 	struct task_struct *next, struct rq *rq)
 {
-	struct oplus_task_struct *ots;
-
 	if (atomic_read(&fbg_initialized) == 0)
 		return;
 
 	if (unlikely(prev == next))
 		return;
 
-	if (unlikely(sysctl_frame_boost_debug)) {
-		ots = get_oplus_task_struct(next);
-		if (ots)
-			fbg_state_systrace_c(cpu_of(rq), ots->fbg_state);
-	}
 	/* prev task */
 	update_group_nr_running(prev, PUT_PREV_TASK);
 	/* next task */
@@ -2252,7 +2117,6 @@ static void fbg_flush_task_hook(void *unused, struct task_struct *tsk)
 	lock = task_get_frame_group_lock(ots);
 
 	raw_spin_lock_irqsave(lock, flags);
-	/* game group task also removed here */
 	remove_task_from_frame_group(tsk);
 	remove_binder_from_frame_group(tsk);
 	raw_spin_unlock_irqrestore(lock, flags);
@@ -2334,19 +2198,6 @@ static void fbg_try_to_wake_up(void *unused, struct task_struct *p)
 }
 #endif
 
-static void fbg_update_suspend_resume(void *unused, const char *action, int val, bool start)
-{
-	if (!__frame_boost_enabled())
-		return;
-
-	if (!strncmp(action, "timekeeping_freeze", 18)) {
-		if (start)
-			fbg_suspend();
-		else
-			fbg_resume();
-	}
-}
-
 void register_frame_group_vendor_hooks(void)
 {
 	/* Register vender hook in driver/android/binder.c */
@@ -2372,7 +2223,6 @@ void register_frame_group_vendor_hooks(void)
 	register_trace_android_rvh_try_to_wake_up(fbg_try_to_wake_up, NULL);
 	register_trace_android_rvh_new_task_stats(fbg_new_task_stats, NULL);
 #endif
-	register_trace_suspend_resume(fbg_update_suspend_resume, NULL);
 }
 
 int info_show(struct seq_file *m, void *v)
@@ -2414,7 +2264,6 @@ int info_show(struct seq_file *m, void *v)
 
 	return 0;
 }
-EXPORT_SYMBOL_GPL(info_show);
 
 int frame_group_init(void)
 {

@@ -97,7 +97,7 @@ static void android_vh_binder_proc_transaction_end_handler(void *unused, struct 
 
 #if IS_ENABLED(CONFIG_OPLUS_FEATURE_SCHED_ASSIST)
 	if (sync && (!strncmp(binder_proc_task->comm, "servicemanager", TASK_COMM_LEN)
-				|| !strncmp(binder_proc_task->comm, "hwservicemanage", TASK_COMM_LEN))) {
+				|| !strncmp(binder_proc_task->comm, "hwservicemanager", TASK_COMM_LEN))) {
 		binder_set_inherit_ux(binder_proc_task, current, sync);
 		if (unlikely(g_sched_debug))
 			trace_printk("caller_task(comm=%-12s pid=%d tgid=%d) binder_proc_task(comm=%-12s pid=%d tgid=%d) code=%d sync=%d\n",

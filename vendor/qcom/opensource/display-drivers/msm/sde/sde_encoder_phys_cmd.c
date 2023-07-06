@@ -16,7 +16,6 @@
 
 #ifdef OPLUS_FEATURE_DISPLAY
 #include "../oplus/oplus_adfr.h"
-#include "../oplus/oplus_display_panel_common.h"
 #include <soc/oplus/system/oplus_mm_kevent_fb.h>
 #endif /* OPLUS_FEATURE_DISPLAY */
 #if IS_ENABLED(CONFIG_OPLUS_FEATURE_THEIA)
@@ -320,7 +319,6 @@ static void sde_encoder_phys_cmd_te_rd_ptr_irq(void *arg, int irq_idx)
 	struct sde_encoder_phys_cmd_te_timestamp *te_timestamp;
 	unsigned long lock_flags;
 #ifdef OPLUS_FEATURE_DISPLAY
-	struct sde_connector *c_conn = NULL;
 	static unsigned long now;
 #endif /* OPLUS_FEATURE_DISPLAY */
 
@@ -367,13 +365,6 @@ static void sde_encoder_phys_cmd_te_rd_ptr_irq(void *arg, int irq_idx)
 		list_add_tail(&te_timestamp->list, &cmd_enc->te_timestamp_list);
 	}
 	spin_unlock_irqrestore(phys_enc->enc_spinlock, lock_flags);
-
-#ifdef OPLUS_FEATURE_DISPLAY
-	c_conn = to_sde_connector(phys_enc->connector);
-	if (c_conn) {
-		oplus_save_te_timestamp(c_conn, te_timestamp->timestamp);
-	}
-#endif /* OPLUS_FEATURE_DISPLAY */
 
 	sde_encoder_helper_get_pp_line_count(phys_enc->parent, info);
 	SDE_EVT32_IRQ(DRMID(phys_enc->parent),
@@ -679,11 +670,8 @@ static int _sde_encoder_phys_cmd_handle_ppdone_timeout(
 		sde_encoder_helper_unregister_irq(phys_enc, INTR_IDX_RDPTR);
 		if (sde_kms_is_secure_session_inprogress(phys_enc->sde_kms))
 			SDE_DBG_DUMP(SDE_DBG_BUILT_IN_ALL, "secure");
-		else {
-			SDE_ERROR("sde_kms is not secure session inprogress\n");
+		else
 			SDE_DBG_DUMP(SDE_DBG_BUILT_IN_ALL);
-			oplus_sde_evtlog_dump_all();
-		}
 		sde_encoder_helper_register_irq(phys_enc, INTR_IDX_RDPTR);
 		mutex_unlock(phys_enc->vblank_ctl_lock);
 	}
@@ -1969,10 +1957,7 @@ static int sde_encoder_phys_cmd_wait_for_vblank(
 
 	rc = sde_encoder_helper_wait_for_irq(phys_enc, INTR_IDX_RDPTR,
 			&wait_info);
-	if (rc == -EINVAL) {
-		atomic_dec(&cmd_enc->pending_vblank_cnt);
-		SDE_ERROR_CMDENC(cmd_enc, "vblank irq is not registered.");
-	}
+
 	return rc;
 }
 
@@ -2028,7 +2013,6 @@ static void _sde_encoder_autorefresh_disable_seq1(
 	_sde_encoder_phys_cmd_config_autorefresh(phys_enc, 0);
 
 	do {
-		udelay(AUTOREFRESH_SEQ1_POLL_TIME);
 		if ((trial * AUTOREFRESH_SEQ1_POLL_TIME)
 				> (timeout_ms * USEC_PER_MSEC)) {
 			SDE_ERROR_CMDENC(cmd_enc,

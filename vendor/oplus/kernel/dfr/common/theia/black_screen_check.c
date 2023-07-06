@@ -12,7 +12,7 @@
 #if IS_ENABLED(CONFIG_DRM_PANEL_NOTIFY) || IS_ENABLED(CONFIG_QCOM_PANEL_EVENT_NOTIFIER)
 static struct delayed_work g_check_dt_work;
 static int g_check_dt_retry_count;
-#define CHECK_DT_DELAY_MS 5000
+#define CHECK_DT_DELAY_MS 20000
 #endif
 
 #define BLACK_DEBUG_PRINTK(a, arg...)\
@@ -33,32 +33,7 @@ struct pwrkey_monitor_data g_black_data = {
 #endif
 };
 
-/* if last stage in this array, skip */
-static char black_last_skip_block_stages[][64] = {
-	{ "LIGHT_setScreenState_" }, /* quick press powerkey, power decide wakeup when black check, skip */
-};
-
-/* if contain stage in this array, skip */
-static char black_skip_stages[][64] = {
-	{ "CANCELED_" }, /* if CANCELED_ event write in black check stage, skip */
-};
-
 static int bl_start_check_systemid = -1;
-
-bool is_dual_screen(void)
-{
-	struct device_node *node = NULL;
-	bool is_dual_screen_dev;
-	node = of_find_node_by_name(NULL, "oplus-theia");
-	if (!node) {
-		BLACK_DEBUG_PRINTK("%s, No oplus-theia node in dtsi\n", __func__);
-		return false;
-	} else {
-		BLACK_DEBUG_PRINTK("%s, oplus-theia node in dtsi\n", __func__);
-	}
-	is_dual_screen_dev = of_property_read_bool(node, "is-dual-screen-pwk-monitor-switch");
-	return is_dual_screen_dev;
-}
 
 int black_screen_timer_restart(void)
 {
@@ -72,14 +47,7 @@ int black_screen_timer_restart(void)
 	/* Remove for MTK functioning */
 	if (!is_system_boot_completed()) {
 		BLACK_DEBUG_PRINTK("boot not complete, %s just return\n", __func__);
-		return -1;
-	}
-
-	if (is_dual_screen()) {
-		BLACK_DEBUG_PRINTK("dual screen not adapted, %s just return\n", __func__);
-		return 0;
-	} else {
-		BLACK_DEBUG_PRINTK("Not dual screen, %s running\n", __func__);
+		/* return -1; */
 	}
 
 	if (g_black_data.blank == THEIA_PANEL_BLANK_VALUE) {
@@ -183,60 +151,10 @@ static void dump_freeze_log(void)
 	send_black_screen_dcs_msg();
 }
 
-static bool is_black_last_stage_skip()
-{
-	int i = 0, nLen;
-	char stage[64] = {0};;
-	get_last_pwkey_stage(stage);
-
-	nLen = ARRAY_SIZE(black_last_skip_block_stages);
-
-	for (i = 0; i < nLen; i++) {
-		if (strstr(stage, black_last_skip_block_stages[i]) != NULL) {
-			BLACK_DEBUG_PRINTK("is_black_last_stage_skip return true, stage:%s", stage);
-			return true;
-		}
-	}
-
-	return false;
-}
-
-static bool is_black_contain_skip_stage()
-{
-	char stages[512] = {0};
-	int i = 0, nArrayLen;
-	get_pwkey_stages(stages);
-
-	nArrayLen = ARRAY_SIZE(black_skip_stages);
-	for (i = 0; i < nArrayLen; i++) {
-		if (strstr(stages, black_skip_stages[i]) != NULL) {
-			BLACK_DEBUG_PRINTK("is_black_contain_skip_stage return true, stages:%s", stages);
-			return true;
-		}
-	}
-
-	return false;
-}
-
-static bool is_need_skip()
-{
-	if (is_black_last_stage_skip())
-		return true;
-
-	if (is_black_contain_skip_stage())
-		return true;
-
-	return false;
-}
-
 static void black_error_happen_work(struct work_struct *work)
 {
 	struct pwrkey_monitor_data *bla_data = container_of(work, struct pwrkey_monitor_data, error_happen_work);
 	struct timespec64 ts;
-
-	/* for black screen check, check if need skip, we direct return */
-	if (is_need_skip())
-		return;
 
 	if (bla_data->error_count == 0) {
 		ktime_get_real_ts64(&ts);

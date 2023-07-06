@@ -55,7 +55,7 @@ static int oplus_chg_vg_virq_register(struct oplus_virtual_gauge_ic *chip);
 static inline bool func_is_support(struct oplus_virtual_gauge_child *ic,
 				   enum oplus_chg_ic_func func_id)
 {
-	switch (func_id) {
+	switch (ic->func_num) {
 	case OPLUS_IC_FUNC_INIT:
 	case OPLUS_IC_FUNC_EXIT:
 		return true; /* must support */
@@ -73,7 +73,7 @@ static inline bool func_is_support(struct oplus_virtual_gauge_child *ic,
 static inline bool virq_is_support(struct oplus_virtual_gauge_child *ic,
 				   enum oplus_chg_ic_virq_id virq_id)
 {
-	switch (virq_id) {
+	switch (ic->virq_num) {
 	case OPLUS_IC_VIRQ_ERR:
 	case OPLUS_IC_VIRQ_ONLINE:
 	case OPLUS_IC_VIRQ_OFFLINE:
@@ -305,6 +305,10 @@ child_list_init_err:
 
 static int oplus_chg_vg_exit(struct oplus_chg_ic_dev *ic_dev)
 {
+	struct oplus_virtual_gauge_ic *chip;
+	int i;
+	int rc;
+
 	if (ic_dev == NULL) {
 		chg_err("oplus_chg_ic_dev is NULL");
 		return -ENODEV;
@@ -313,6 +317,26 @@ static int oplus_chg_vg_exit(struct oplus_chg_ic_dev *ic_dev)
 		return 0;
 
 	ic_dev->online = false;
+
+	chip = oplus_chg_ic_get_drvdata(ic_dev);
+	for (i = 0; i < chip->child_num; i++) {
+		rc = oplus_chg_ic_func(chip->child_list[i].ic_dev,
+				       OPLUS_IC_FUNC_EXIT);
+		if (rc < 0)
+			chg_err("child ic[%d] exit error, rc=%d\n", i, rc);
+	}
+	for (i = 0; i < chip->child_num; i++) {
+		if (virq_is_support(&chip->child_list[i], OPLUS_IC_VIRQ_ERR)) {
+			oplus_chg_ic_virq_release(chip->child_list[i].ic_dev,
+						  OPLUS_IC_VIRQ_ERR, chip);
+		}
+	}
+	for (i = 0; i < chip->child_num; i++) {
+		if (chip->child_list[i].virqs != NULL)
+			devm_kfree(chip->dev, chip->child_list[i].virqs);
+	}
+	for (i = 0; i < chip->child_num; i++)
+		devm_kfree(chip->dev, chip->child_list[i].funcs);
 
 	return 0;
 }
@@ -2023,243 +2047,6 @@ skip_overwrite:
 	return rc;
 }
 
-static int oplus_chg_vg_get_battery_dod0(struct oplus_chg_ic_dev *ic_dev, int index,
-					int *val)
-{
-	struct oplus_virtual_gauge_ic *chip;
-	int i;
-	int rc = 0;
-#ifdef CONFIG_OPLUS_CHG_IC_DEBUG
-	struct oplus_chg_ic_overwrite_data *data;
-	const void *buf;
-#endif
-
-	if (ic_dev == NULL || val == NULL) {
-		chg_err("oplus_chg_ic_dev is NULL");
-		return -ENODEV;
-	}
-
-#ifdef CONFIG_OPLUS_CHG_IC_DEBUG
-	data = oplus_chg_ic_get_overwrite_data(ic_dev, OPLUS_IC_FUNC_GAUGE_GET_DOD0);
-	if (unlikely(data != NULL)) {
-		buf = (const void *)data->buf;
-		if (!oplus_chg_ic_debug_data_check(buf, data->size))
-			goto skip_overwrite;
-		*val = oplus_chg_ic_get_item_data(buf, index);
-		return 0;
-	}
-skip_overwrite:
-#endif
-
-	chip = oplus_chg_ic_get_drvdata(ic_dev);
-	for (i = 0; i < chip->child_num; i++) {
-		if (!func_is_support(&chip->child_list[i],
-				     OPLUS_IC_FUNC_GAUGE_GET_DOD0)) {
-			rc = (rc == 0) ? -ENOTSUPP : rc;
-			continue;
-		}
-		rc = oplus_chg_ic_func(chip->child_list[i].ic_dev,
-				       OPLUS_IC_FUNC_GAUGE_GET_DOD0,
-				       index, val);
-		if (rc < 0)
-			chg_err("child ic[%d] get dod0 val error, rc=%d\n",
-				i, rc);
-		break;
-	}
-
-	return rc;
-}
-
-static int oplus_chg_vg_get_battery_dod0_passed_q(struct oplus_chg_ic_dev *ic_dev,
-					int *val)
-{
-	struct oplus_virtual_gauge_ic *chip;
-	int i;
-	int rc = 0;
-#ifdef CONFIG_OPLUS_CHG_IC_DEBUG
-	struct oplus_chg_ic_overwrite_data *data;
-	const void *buf;
-#endif
-
-	if (ic_dev == NULL || val == NULL) {
-		chg_err("oplus_chg_ic_dev is NULL");
-		return -ENODEV;
-	}
-
-#ifdef CONFIG_OPLUS_CHG_IC_DEBUG
-	data = oplus_chg_ic_get_overwrite_data(
-		ic_dev, OPLUS_IC_FUNC_GAUGE_GET_DOD0_PASSED_Q);
-	if (unlikely(data != NULL)) {
-		buf = (const void *)data->buf;
-		if (!oplus_chg_ic_debug_data_check(buf, data->size))
-			goto skip_overwrite;
-		*val = oplus_chg_ic_get_item_data(buf, 0);
-		return 0;
-	}
-skip_overwrite:
-#endif
-
-	chip = oplus_chg_ic_get_drvdata(ic_dev);
-	for (i = 0; i < chip->child_num; i++) {
-		if (!func_is_support(&chip->child_list[i],
-				     OPLUS_IC_FUNC_GAUGE_GET_DOD0_PASSED_Q)) {
-			rc = (rc == 0) ? -ENOTSUPP : rc;
-			continue;
-		}
-		rc = oplus_chg_ic_func(chip->child_list[i].ic_dev,
-				       OPLUS_IC_FUNC_GAUGE_GET_DOD0_PASSED_Q,
-				       val);
-		if (rc < 0)
-			chg_err("child ic[%d] get dod0_passed_q val error, rc=%d\n",
-				i, rc);
-		break;
-	}
-
-	return rc;
-}
-
-static int oplus_chg_vg_get_battery_qmax(struct oplus_chg_ic_dev *ic_dev, int index,
-					int *val)
-{
-	struct oplus_virtual_gauge_ic *chip;
-	int i;
-	int rc = 0;
-#ifdef CONFIG_OPLUS_CHG_IC_DEBUG
-	struct oplus_chg_ic_overwrite_data *data;
-	const void *buf;
-#endif
-
-	if (ic_dev == NULL || val == NULL) {
-		chg_err("oplus_chg_ic_dev is NULL");
-		return -ENODEV;
-	}
-
-#ifdef CONFIG_OPLUS_CHG_IC_DEBUG
-	data = oplus_chg_ic_get_overwrite_data(ic_dev, OPLUS_IC_FUNC_GAUGE_GET_QMAX);
-	if (unlikely(data != NULL)) {
-		buf = (const void *)data->buf;
-		if (!oplus_chg_ic_debug_data_check(buf, data->size))
-			goto skip_overwrite;
-		*val = oplus_chg_ic_get_item_data(buf, index);
-		return 0;
-	}
-skip_overwrite:
-#endif
-
-	chip = oplus_chg_ic_get_drvdata(ic_dev);
-	for (i = 0; i < chip->child_num; i++) {
-		if (!func_is_support(&chip->child_list[i],
-				     OPLUS_IC_FUNC_GAUGE_GET_QMAX)) {
-			rc = (rc == 0) ? -ENOTSUPP : rc;
-			continue;
-		}
-		rc = oplus_chg_ic_func(chip->child_list[i].ic_dev,
-				       OPLUS_IC_FUNC_GAUGE_GET_QMAX, index, val);
-		if (rc < 0)
-			chg_err("child ic[%d] get qmax_2 val error, rc=%d\n",
-				i, rc);
-		break;
-	}
-
-	return rc;
-}
-
-static int oplus_chg_vg_get_battery_qmax_passed_q(struct oplus_chg_ic_dev *ic_dev,
-					int *val)
-{
-	struct oplus_virtual_gauge_ic *chip;
-	int i;
-	int rc = 0;
-#ifdef CONFIG_OPLUS_CHG_IC_DEBUG
-	struct oplus_chg_ic_overwrite_data *data;
-	const void *buf;
-#endif
-
-	if (ic_dev == NULL) {
-		chg_err("oplus_chg_ic_dev is NULL");
-		return -ENODEV;
-	}
-
-#ifdef CONFIG_OPLUS_CHG_IC_DEBUG
-	data = oplus_chg_ic_get_overwrite_data(
-		ic_dev, OPLUS_IC_FUNC_GAUGE_GET_QMAX_PASSED_Q);
-	if (unlikely(data != NULL)) {
-		buf = (const void *)data->buf;
-		if (!oplus_chg_ic_debug_data_check(buf, data->size))
-			goto skip_overwrite;
-		*val = oplus_chg_ic_get_item_data(buf, 0);
-		return 0;
-	}
-skip_overwrite:
-#endif
-
-	chip = oplus_chg_ic_get_drvdata(ic_dev);
-	for (i = 0; i < chip->child_num; i++) {
-		if (!func_is_support(&chip->child_list[i],
-				     OPLUS_IC_FUNC_GAUGE_GET_QMAX_PASSED_Q)) {
-			rc = (rc == 0) ? -ENOTSUPP : rc;
-			continue;
-		}
-		rc = oplus_chg_ic_func(chip->child_list[i].ic_dev,
-				       OPLUS_IC_FUNC_GAUGE_GET_QMAX_PASSED_Q,
-				       val);
-		if (rc < 0)
-			chg_err("child ic[%d] get qmax_passed_q val error, rc=%d\n",
-				i, rc);
-		break;
-	}
-
-	return rc;
-}
-
-static int oplus_chg_vg_get_battery_gauge_type(struct oplus_chg_ic_dev *ic_dev,
-					int *type)
-{
-	struct oplus_virtual_gauge_ic *chip;
-	int i;
-	int rc = 0;
-#ifdef CONFIG_OPLUS_CHG_IC_DEBUG
-	struct oplus_chg_ic_overwrite_data *data;
-	const void *buf;
-#endif
-
-	if (ic_dev == NULL) {
-		chg_err("oplus_chg_ic_dev is NULL");
-		return -ENODEV;
-	}
-
-#ifdef CONFIG_OPLUS_CHG_IC_DEBUG
-	data = oplus_chg_ic_get_overwrite_data(
-		ic_dev, OPLUS_IC_FUNC_GAUGE_GET_BATT_EXIST);
-	if (unlikely(data != NULL)) {
-		buf = (const void *)data->buf;
-		if (!oplus_chg_ic_debug_data_check(buf, data->size))
-			goto skip_overwrite;
-		*type = oplus_chg_ic_get_item_data(buf, 0);
-		return 0;
-	}
-skip_overwrite:
-#endif
-
-	chip = oplus_chg_ic_get_drvdata(ic_dev);
-	for (i = 0; i < chip->child_num; i++) {
-		if (!func_is_support(&chip->child_list[i],
-				     OPLUS_IC_FUNC_GAUGE_GET_DEVICE_TYPE_FOR_BCC)) {
-			rc = (rc == 0) ? -ENOTSUPP : rc;
-			continue;
-		}
-		rc = oplus_chg_ic_func(chip->child_list[i].ic_dev,
-				       OPLUS_IC_FUNC_GAUGE_GET_DEVICE_TYPE_FOR_BCC,
-				       type);
-		if (rc < 0)
-			chg_err("child ic[%d] get gauge_type val error, rc=%d\n",
-				i, rc);
-		break;
-	}
-
-	return rc;
-}
-
 static int oplus_chg_vg_get_exist_status(struct oplus_chg_ic_dev *ic_dev,
 					 bool *exist)
 {
@@ -2651,53 +2438,6 @@ static int oplus_chg_vg_set_battery_curve(struct oplus_chg_ic_dev *ic_dev,
 	return rc;
 }
 
-static int oplus_chg_vg_get_subboard_temp(struct oplus_chg_ic_dev *ic_dev, int *temp)
-{
-	struct oplus_virtual_gauge_ic *chip;
-	int i;
-	int rc = 0;
-#ifdef CONFIG_OPLUS_CHG_IC_DEBUG
-	struct oplus_chg_ic_overwrite_data *data;
-	const void *buf;
-#endif
-
-	if (ic_dev == NULL) {
-		chg_err("oplus_chg_ic_dev is NULL");
-		return -ENODEV;
-	}
-
-#ifdef CONFIG_OPLUS_CHG_IC_DEBUG
-	data = oplus_chg_ic_get_overwrite_data(ic_dev, OPLUS_IC_FUNC_GAUGE_GET_SUBBOARD_TEMP);
-	if (unlikely(data != NULL)) {
-		buf = (const void *)data->buf;
-		if (!oplus_chg_ic_debug_data_check(buf, data->size))
-			goto skip_overwrite;
-		*temp = oplus_chg_ic_get_item_data(buf, 0);
-		return 0;
-	}
-skip_overwrite:
-#endif
-
-	/* TODO: check common config */
-
-	chip = oplus_chg_ic_get_drvdata(ic_dev);
-	for (i = 0; i < chip->child_num; i++) {
-		if (!func_is_support(&chip->child_list[i],
-				     OPLUS_IC_FUNC_GAUGE_GET_SUBBOARD_TEMP)) {
-			rc = (rc == 0) ? -ENOTSUPP : rc;
-			continue;
-		}
-		rc = oplus_chg_ic_func(chip->child_list[i].ic_dev,
-				       OPLUS_IC_FUNC_GAUGE_GET_SUBBOARD_TEMP, temp);
-		if (rc < 0)
-			chg_err("child ic[%d] get battery temp error, rc=%d\n",
-				i, rc);
-		break;
-	}
-
-	return rc;
-}
-
 static void *oplus_chg_vg_get_func(struct oplus_chg_ic_dev *ic_dev,
 				   enum oplus_chg_ic_func func_id)
 {
@@ -2880,26 +2620,6 @@ static void *oplus_chg_vg_get_func(struct oplus_chg_ic_dev *ic_dev,
 			OPLUS_IC_FUNC_GAUGE_GET_DEVICE_TYPE_FOR_VOOC,
 			oplus_chg_vg_get_device_type_for_vooc);
 		break;
-	case OPLUS_IC_FUNC_GAUGE_GET_DOD0:
-		func = OPLUS_CHG_IC_FUNC_CHECK(OPLUS_IC_FUNC_GAUGE_GET_DOD0,
-					       oplus_chg_vg_get_battery_dod0);
-		break;
-	case OPLUS_IC_FUNC_GAUGE_GET_DOD0_PASSED_Q:
-		func = OPLUS_CHG_IC_FUNC_CHECK(OPLUS_IC_FUNC_GAUGE_GET_DOD0_PASSED_Q,
-					       oplus_chg_vg_get_battery_dod0_passed_q);
-		break;
-	case OPLUS_IC_FUNC_GAUGE_GET_QMAX:
-		func = OPLUS_CHG_IC_FUNC_CHECK(OPLUS_IC_FUNC_GAUGE_GET_QMAX,
-					       oplus_chg_vg_get_battery_qmax);
-		break;
-	case OPLUS_IC_FUNC_GAUGE_GET_QMAX_PASSED_Q:
-		func = OPLUS_CHG_IC_FUNC_CHECK(OPLUS_IC_FUNC_GAUGE_GET_QMAX_PASSED_Q,
-					       oplus_chg_vg_get_battery_qmax_passed_q);
-		break;
-	case OPLUS_IC_FUNC_GAUGE_GET_DEVICE_TYPE_FOR_BCC:
-		func = OPLUS_CHG_IC_FUNC_CHECK(OPLUS_IC_FUNC_GAUGE_GET_DEVICE_TYPE_FOR_BCC,
-					       oplus_chg_vg_get_battery_gauge_type);
-		break;
 	case OPLUS_IC_FUNC_GAUGE_GET_BATT_EXIST:
 		func = OPLUS_CHG_IC_FUNC_CHECK(
 			OPLUS_IC_FUNC_GAUGE_GET_BATT_EXIST,
@@ -2950,10 +2670,6 @@ static void *oplus_chg_vg_get_func(struct oplus_chg_ic_dev *ic_dev,
 	case OPLUS_IC_FUNC_GAUGE_SET_BATTERY_CURVE:
 		func = OPLUS_CHG_IC_FUNC_CHECK(OPLUS_IC_FUNC_GAUGE_SET_BATTERY_CURVE,
 			oplus_chg_vg_set_battery_curve);
-		break;
-	case OPLUS_IC_FUNC_GAUGE_GET_SUBBOARD_TEMP:
-		func = OPLUS_CHG_IC_FUNC_CHECK(OPLUS_IC_FUNC_GAUGE_GET_SUBBOARD_TEMP,
-			oplus_chg_vg_get_subboard_temp);
 		break;
 	default:
 		chg_err("this func(=%d) is not supported\n", func_id);
@@ -3313,15 +3029,6 @@ static ssize_t oplus_chg_vg_get_func_data(struct oplus_chg_ic_dev *ic_dev,
 		*item_data = cpu_to_le32(*item_data);
 		rc = oplus_chg_ic_debug_data_size(1);
 		break;
-	case OPLUS_IC_FUNC_GAUGE_GET_SUBBOARD_TEMP:
-		oplus_chg_ic_debug_data_init(buf, 1);
-		item_data = oplus_chg_ic_get_item_data_addr(buf, 0);
-		rc = oplus_chg_vg_get_subboard_temp(ic_dev, item_data);
-		if (rc < 0)
-			break;
-		*item_data = cpu_to_le32(*item_data);
-		rc = oplus_chg_ic_debug_data_size(1);
-		break;
 	default:
 		chg_err("this func(=%d) is not supported to get\n", func_id);
 		return -ENOTSUPP;
@@ -3428,7 +3135,6 @@ enum oplus_chg_ic_func oplus_chg_vg_overwrite_funcs[] = {
 	OPLUS_IC_FUNC_GAUGE_GET_BATT_EXIST,
 	OPLUS_IC_FUNC_GAUGE_GET_BATT_CAP,
 	OPLUS_IC_FUNC_GAUGE_IS_SUSPEND,
-	OPLUS_IC_FUNC_GAUGE_GET_SUBBOARD_TEMP,
 };
 
 #endif /* CONFIG_OPLUS_CHG_IC_DEBUG */

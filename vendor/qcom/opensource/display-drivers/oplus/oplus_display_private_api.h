@@ -97,8 +97,4 @@ int interpolate(int x, int xa, int xb, int ya, int yb);
 
 int dsi_display_oplus_set_power(struct drm_connector *connector, int power_mode,
 		void *disp);
-
-int dsi_panel_read_panel_reg_unlock(struct dsi_display_ctrl *ctrl,
-		struct dsi_panel *panel, u8 cmd, void *rbuf,  size_t len);
-
 #endif /* _OPLUS_DISPLAY_PRIVATE_API_H_ */

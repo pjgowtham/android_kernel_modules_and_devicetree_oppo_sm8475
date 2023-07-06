@@ -302,10 +302,7 @@ static int hl7138_reg_reset(struct oplus_voocphy_manager *chip, bool enable)
 	hl7138_write_byte(chip->client, HL7138_REG_13, 0x40);	/* set 100ms ucp debounce time; */
 	hl7138_write_byte(chip->client, HL7138_REG_15, 0x00);	/* set default mode; */
 	hl7138_write_byte(chip->client, HL7138_REG_17, 0x00);	/* set default mode; */
-	hl7138_read_byte(chip->client, HL7138_REG_05, &value);
-	hl7138_read_byte(chip->client, HL7138_REG_06, &value);
 	hl7138_write_byte(chip->client, HL7138_REG_37, 0x02);	/* reset VOOC PHY; */
-	hl7138_read_byte(chip->client, HL7138_REG_3B, &value);  /* clear flag 2023-jl */
 	hl7138_write_byte(chip->client, HL7138_REG_3F, 0xD1);	/* bit7 T6:170us */
 
 	return ret;
@@ -378,6 +375,7 @@ static int hl7138_set_chg_enable(struct oplus_voocphy_manager *chip, bool enable
 static int hl7138_get_cp_ichg(struct oplus_voocphy_manager *chip)
 {
 	u8 data_block[HL7138_REG_NUM_2] = {0};
+	int cp_ichg = 0;
 	u8 cp_enable = 0;
 
 	hl7138_get_chg_enable(chip, &cp_enable);
@@ -393,7 +391,7 @@ static int hl7138_get_cp_ichg(struct oplus_voocphy_manager *chip)
 		chip->cp_ichg = ((data_block[0] << HL7138_REG_ADC_BIT_OFFSET_4) | data_block[1]) * HL7138_VOOC_IBUS_FACTOR;	/* Iin_lbs=2.15mA@BP; */
 	}
 
-	return chip->cp_ichg;
+	return cp_ichg;
 }
 
 int hl7138_get_cp_vbat(struct oplus_voocphy_manager *chip)
@@ -534,9 +532,6 @@ static int hl7138_set_adc_forcedly_enable(struct oplus_voocphy_manager *chip, in
 
 void hl7138_send_handshake_seq(struct oplus_voocphy_manager *chip)
 {
-	unsigned char value;
-	hl7138_read_byte(chip->client, HL7138_REG_01, &value);	/* before handshake, clear int 2023-jl */
-	hl7138_read_byte(chip->client, HL7138_REG_3B, &value);	/* before handshake, clear int 2023-jl */
 	hl7138_write_byte(chip->client, HL7138_REG_37, 0x81);	/* JL:2B->37,EN & Handshake; */
 
 	chg_debug("hl7138_send_handshake_seq done");
@@ -651,92 +646,6 @@ static int hl7138_work_mode_lockcheck(struct oplus_voocphy_manager *chip)
 		hl7138_write_byte(chip->client, HL7138_REG_A0, 0x00);	/* Lock test register */
 		chg_err("hl7138_work_mode_lockcheck done\n");
 	}
-	return 0;
-}
-
-static bool hl7138_check_hw_ba_version(struct oplus_voocphy_manager *chip)
-{
-	int ret;
-	u8 val;
-
-	ret = hl7138_read_byte(chip->client, HL7138_REG_00, &val);
-	if (ret < 0) {
-		chg_err("read hl7138 reg0 error\n");
-		return false;
-	}
-
-	if (val == HL7138_BA_VERSION)
-		return true;
-	else
-		return false;
-}
-
-/* turn off system clk for BA version only */
-static int hl7138_turnoff_sys_clk(struct oplus_voocphy_manager *chip)
-{
-	u8 reg_data[2] = {0};
-	int retry = 0;
-
-	if (!chip) {
-		chg_err("turn off sys clk failed\n");
-		return -1;
-	}
-
-	do {
-		hl7138_write_byte(chip->client, HL7138_REG_A0, 0xF9);
-		hl7138_write_byte(chip->client, HL7138_REG_A0, 0x9F);	/* Unlock register */
-		hl7138_write_byte(chip->client, HL7138_REG_A3, 0x01);
-		hl7138_write_byte(chip->client, HL7138_REG_A0, 0x00);	/* Lock register */
-
-		hl7138_read_byte(chip->client, HL7138_REG_A3, &reg_data[0]);
-		hl7138_read_byte(chip->client, HL7138_REG_A0, &reg_data[1]);
-		chg_debug("0xA3 = 0x%02x, 0xA0 = 0x%02x\n", reg_data[0], reg_data[1]);
-
-		if ((reg_data[0] == 0x01) && (reg_data[1] == 0x00))	/* Lock register success */
-			break;
-		mdelay(5);
-		retry++;
-	} while (retry <= 3);
-	chg_debug("hl7138_turnoff_sys_clk done\n");
-
-	return 0;
-}
-
-/* turn on system clk for BA version only */
-static int hl7138_turnon_sys_clk(struct oplus_voocphy_manager *chip)
-{
-	u8 reg_data[2] = {0};
-	int retry = 0;
-	int ret = 0;
-
-	if (!chip) {
-		chg_err("turn on sys clk failed\n");
-		return -1;
-	}
-
-	do {
-		hl7138_write_byte(chip->client, HL7138_REG_A0, 0xF9);
-		hl7138_write_byte(chip->client, HL7138_REG_A0, 0x9F);	/* Unlock register */
-		hl7138_write_byte(chip->client, HL7138_REG_A3, 0x00);
-		hl7138_write_byte(chip->client, HL7138_REG_A0, 0x00);	/* Lock register */
-
-		ret = hl7138_read_byte(chip->client, HL7138_REG_A3, &reg_data[0]);
-		ret |= hl7138_read_byte(chip->client, HL7138_REG_A0, &reg_data[1]);
-		chg_debug("0xA3 = 0x%02x, 0xA0 = 0x%02x\n", reg_data[0], reg_data[1]);
-
-		/* Lock register success */
-		if ((reg_data[0] == 0x00) && (reg_data[1] == 0x00) && ret == 0)
-			break;
-		mdelay(5);
-		retry++;
-	} while (retry <= 3);
-
-	/* combined operation, let sys_clk return auto mode, current restore to uA level */
-	hl7138_write_byte(chip->client, HL7138_REG_40, 0x0D);	/* force enable adc read average with 4 samples data */
-	hl7138_write_byte(chip->client, HL7138_REG_14, 0xC8);	/* soft reset register and disable watchdog */
-	mdelay(2);
-	chg_debug("hl7138_turnon_sys_clk done\n");
-
 	return 0;
 }
 
@@ -1271,10 +1180,6 @@ static int hl7138_charger_probe(struct i2c_client *client,
 
 	init_proc_voocphy_debug();
 
-	/* turn on system clk for BA version only */
-	if (hl7138_check_hw_ba_version(chip))
-		hl7138_turnon_sys_clk(chip);
-
 	chg_err("hl7138_charger_probe succesfull\n");
 	return 0;
 
@@ -1289,10 +1194,6 @@ static void hl7138_charger_shutdown(struct i2c_client *client)
 		hl7138_write_byte(oplus_voocphy_mg->client, HL7138_REG_40, 0x00);	/* disable */
 		hl7138_reg_reset(oplus_voocphy_mg, true);
 		hl7138_hw_reset(oplus_voocphy_mg);
-
-		/* turn off system clk for BA version only */
-		if (hl7138_check_hw_ba_version(oplus_voocphy_mg))
-			hl7138_turnoff_sys_clk(oplus_voocphy_mg);
 	}
 	chg_err("hl7138_charger_shutdown end\n");
 

@@ -13,6 +13,11 @@
 #include <linux/types.h>
 #include <linux/slab.h>
 
+#ifdef pr_fmt
+#undef pr_fmt
+#endif
+#define pr_fmt(fmt) "OCH: " fmt
+
 struct oplus_cpufreq_frequency_table {
 	unsigned int frequency;
 	u64 floor_time;
@@ -59,7 +64,6 @@ struct cpufreq_health_info {
 };
 
 extern void cpufreq_health_get_state(struct cpufreq_policy *policy);
-extern int freq_to_voltage(int cluster_id, unsigned int target_freq);
 extern void cpufreq_health_get_newtask_state(struct cpufreq_policy *policy, int newtask_flag);
 extern void cpufreq_health_get_edtask_state(int cpu, int edtask_flag);
 

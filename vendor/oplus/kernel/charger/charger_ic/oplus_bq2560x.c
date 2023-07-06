@@ -42,8 +42,6 @@
 #include "../oplus_charger.h"
 #include "oplus_bq2560x_reg.h"
 #include "../oplus_vooc.h"
-extern int oplus_get_rtc_ui_soc(void);
-extern int oplus_set_rtc_ui_soc(int value);
 extern void oplus_wake_up_usbtemp_thread(void);
 extern int oplus_chg_get_charger_subtype(void);
 extern int oplus_chg_pd_setup(void);
@@ -2831,6 +2829,16 @@ int oplus_bq2560x_chg_set_high_vbus(bool en)
 	return false;
 }
 
+static int oplus_bq2560x_get_rtc_spare_oplus_fg_value(void)
+{
+	return 0;
+}
+
+static int oplus_bq2560x_set_rtc_spare_oplus_fg_value(int soc)
+{
+	return 0;
+}
+
 static void bq2560x_init_work_handler(struct work_struct *work)
 {
 	int ret;
@@ -2907,8 +2915,8 @@ struct oplus_chg_operations  oplus_chg_bq2560x_ops = {
 	.get_boot_mode = (int (*)(void))oplus_get_boot_mode,
 	.get_boot_reason = (int (*)(void))oplus_get_boot_reason,
 	.get_instant_vbatt = oplus_battery_meter_get_battery_voltage,
-	.get_rtc_soc = oplus_get_rtc_ui_soc,
-	.set_rtc_soc = oplus_set_rtc_ui_soc,
+	.get_rtc_soc = oplus_bq2560x_get_rtc_spare_oplus_fg_value,
+	.set_rtc_soc = oplus_bq2560x_set_rtc_spare_oplus_fg_value,
 	.set_power_off = oplus_mt_power_off,
 	.usb_connect = mt_usb_connect,
 	.usb_disconnect = mt_usb_disconnect,

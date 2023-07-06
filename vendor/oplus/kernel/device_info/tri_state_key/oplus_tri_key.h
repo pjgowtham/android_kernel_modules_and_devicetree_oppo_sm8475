@@ -14,13 +14,6 @@
 #include <linux/alarmtimer.h>
 #include <linux/version.h>
 #include "ist_hall_ic/hall_ist8801.h"
-#if defined(CONFIG_OPLUS_FEATURE_FEEDBACK) || defined(CONFIG_OPLUS_FEATURE_FEEDBACK_MODULE)
-#include <soc/oplus/system/kernel_fb.h>
-#endif
-
-#define TRIKEY_FB_INTERF_TYPE       "10001"
-#define TRIKEY_FB_BUS_TRANS_TYPE    "10002"
-#define TRIKEY_FB_CALIB_DATA_TYPE   "10003"
 
 enum debug_level {
 	LEVEL_BASIC,
@@ -49,24 +42,6 @@ enum tri_key_position {
 	MID_STATE,
 };
 
-#define MAX_LEN     16
-#define READ_OFFECT 255
-#define OFFECT_DOWN "down"
-#define OFFECT_UP   "up"
-#define OFFECT_CUT  ":"
-#define OFFECT_MAX  100
-
-enum interf_type {
-	INTERF_TYPE_NONE,
-	INTERF_TYPE_1,
-	INTERF_TYPE_2,
-	INTERF_TYPE_3,
-	INTERF_TYPE_4,
-	INTERF_TYPE_5,
-	INTERF_TYPE_6,
-	INTERF_TYPE_7,
-	INTERF_TYPE_8,
-};
 extern unsigned int tristate_extcon_tab[];
 extern unsigned int tri_key_debug;
 
@@ -86,7 +61,6 @@ struct dhall_operations {
 	int (*set_reg)(int reg, int val);
 	bool (*is_power_on)(void);
 	void (*set_sensitivity)(char *data);
-	int (*offect_data_handle)(int offect);
 };
 
 struct extcon_dev_data {
@@ -122,8 +96,6 @@ struct extcon_dev_data {
 	int			manual2auto_up_switch;
 	int			manual2auto_down_switch;
 	int			irq;
-	int         data_offect;
-	char        data_offect_name[8];
 };
 
 extern int oplus_register_hall(const char *name,

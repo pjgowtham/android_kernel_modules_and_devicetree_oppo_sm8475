@@ -44,6 +44,8 @@
 #include <linux/reboot.h>
 #include <linux/timer.h>
 
+#include <mt-plat/charger_type.h>
+#include <mt-plat/mtk_battery.h>
 #include <mt-plat/mtk_boot.h>
 #include <pmic.h>
 #include <mtk_gauge_time_service.h>
@@ -156,7 +158,6 @@ int oplus_get_typec_cc_orientation(void);
 
 
 /*====================================================================*/
-#define DEFAULT_BATTERY_TMP_WHEN_ERROR	-400
 #ifdef OPLUS_FEATURE_CHG_BASIC
 #define USB_TEMP_HIGH		0x01/*bit0*/
 #define USB_WATER_DETECT	0x02/*bit1*/
@@ -166,46 +167,11 @@ int oplus_get_typec_cc_orientation(void);
 #define USB_DONOT_USE		0x80000000/*bit31*/
 static int usb_status = 0;
 
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 19, 0))
-bool oplus_otgctl_by_buckboost(void)
-{
-	if (!g_oplus_chip)
-		return false;
-
-	return false;
-}
-
-void oplus_otg_enable_by_buckboost(void)
-{
-	if (!g_oplus_chip || !(g_oplus_chip->chg_ops->charging_disable) || !(g_oplus_chip->chg_ops->charging_disable))
-		return;
-
-	g_oplus_chip->chg_ops->charging_disable();
-	g_oplus_chip->chg_ops->otg_enable();
-}
-
-void oplus_otg_disable_by_buckboost(void)
-{
-	if (!g_oplus_chip || !(g_oplus_chip->chg_ops->otg_disable))
-		return;
-
-	g_oplus_chip->chg_ops->otg_disable();
-}
-#endif
-
-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 19, 0))
 extern int acm_shortcut(void);
-#else
-extern int meta_dt_get_mboot_params(void);
-#endif
 static bool oplus_is_meta_mode(void)
 {
 	int config = 0;
-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 19, 0))
 	config = acm_shortcut();
-#else
-	config = meta_dt_get_mboot_params();
-#endif
 	if ((config == 1) || (config == 2)) {
 		return true;
 	} else {
@@ -2978,12 +2944,7 @@ static void oplus_get_usbtemp_volt(struct oplus_chg_chip *chip)
 		goto usbtemp_next;
 	}
 
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 19, 0))
-/*******kernel-4.19\drivers\iio\adc\mt6577_auxadc.c   --->mt6577_auxadc_read_raw ---->*val = *val * 1500 / 4096; *******/
-	chip->usbtemp_volt_l = usbtemp_volt;
-#else
 	chip->usbtemp_volt_l = usbtemp_volt * 1500 / 4096;
-#endif
 	usbtemp_volt_l_pre = chip->usbtemp_volt_l;
 usbtemp_next:
 	usbtemp_volt = 0;
@@ -3000,12 +2961,7 @@ usbtemp_next:
 		return;
 	}
 
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 19, 0))
-/*******kernel-4.19\drivers\iio\adc\mt6577_auxadc.c   --->mt6577_auxadc_read_raw ---->*val = *val * 1500 / 4096; *******/
-	chip->usbtemp_volt_r = usbtemp_volt;
-#else
 	chip->usbtemp_volt_r = usbtemp_volt * 1500 / 4096;
-#endif
 	usbtemp_volt_r_pre = chip->usbtemp_volt_r;
 
 	return;
@@ -3148,7 +3104,7 @@ static int mt_ac_get_property(struct power_supply *psy,
 			(charger_type == CHARGING_HOST))
 			val->intval = 0;
 
-		if ((val->intval == 0) && (charger_type == CHARGER_UNKNOWN)) {
+		if (val->intval == 0) {
 			oplus_vooc_reset_fastchg_after_usbout();
 			oplus_chg_set_chargerid_switch_val(0);
 			oplus_chg_clear_chargerid_info();
@@ -3157,9 +3113,6 @@ static int mt_ac_get_property(struct power_supply *psy,
 		break;
 	default:
 		rc = oplus_ac_get_property(psy, psp, val);
-		if (rc < 0) {
-			val->intval = 0;
-		}
 	}
 	return rc;
 }
@@ -3195,9 +3148,6 @@ static int mt_usb_get_property(struct power_supply *psy,
 		break;
 	default:
 		rc = oplus_usb_get_property(psy, psp, val);
-		if (rc < 0) {
-			val->intval = 0;
-		}
 	}
 	return rc;
 }
@@ -3225,20 +3175,7 @@ static int battery_prop_is_writeable(struct power_supply *psy,
 static int battery_set_property(struct power_supply *psy,
 	enum power_supply_property psp, const union power_supply_propval *val)
 {
-	int rc = 0;
-
-	switch (psp) {
-	case POWER_SUPPLY_PROP_ONLINE:
-		if (g_oplus_chip && g_oplus_chip->usb_psy)
-			power_supply_changed(g_oplus_chip->usb_psy);
-		if (g_oplus_chip && g_oplus_chip->ac_psy)
-			power_supply_changed(g_oplus_chip->ac_psy);
-		break;
-	default:
-		rc = oplus_battery_set_property(psy, psp, val);
-		break;
-	}
-	return rc;
+	return oplus_battery_set_property(psy, psp, val);
 }
 
 static int battery_get_property(struct power_supply *psy,
@@ -3264,15 +3201,8 @@ static int battery_get_property(struct power_supply *psy,
 		break;
 	default:
 		rc = oplus_battery_get_property(psy, psp, val);
-		if (rc < 0) {
-			if (psp == POWER_SUPPLY_PROP_TEMP)
-				val->intval = DEFAULT_BATTERY_TMP_WHEN_ERROR;
-			else
-				val->intval = 0;
-		}
 		break;
 	}
-
 	return 0;
 }
 
@@ -3287,7 +3217,6 @@ static enum power_supply_property mt_usb_properties[] = {
 };
 
 static enum power_supply_property battery_properties[] = {
-	POWER_SUPPLY_PROP_ONLINE,
 	POWER_SUPPLY_PROP_STATUS,
 	POWER_SUPPLY_PROP_HEALTH,
 	POWER_SUPPLY_PROP_PRESENT,
@@ -4159,7 +4088,7 @@ static void mtk_charger_shutdown(struct platform_device *dev)
 }
 
 static const struct of_device_id mtk_charger_of_match[] = {
-	{ .compatible = "mediatek,charger", },
+	{.compatible = "mediatek,charger",},
 	{},
 };
 

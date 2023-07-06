@@ -797,8 +797,7 @@ static enum tfa_error tfa98xx_tfa_start(struct tfa98xx *tfa98xx, int next_profil
 	if (ftm_mode == BOOT_MODE_FACTORY) {
 		tfa98xx_dsp_system_stable_v6(tfa98xx->tfa, &ready);
 		if (!ready) {
-			/* Use strncpy instead of strcpy, fix coverity issue*/
-			strncpy(ftm_clk, "clk_fail", sizeof(ftm_clk));
+			strcpy(ftm_clk, "clk_fail");
 		}
 	}
 	#endif /* OPLUS_ARCH_EXTENDS */
@@ -2303,8 +2302,7 @@ static int get_profile_from_list(char *buf, int id)
 
 	list_for_each_entry(bprof, &profile_list, list) {
 		if (bprof->item_id == id) {
-			/* Use strncpy instead of strcpy, fix coverity issue*/
-			strncpy(buf, bprof->basename, MAX_CONTROL_NAME);
+			strcpy(buf, bprof->basename);
 			return 0;
 		}
 	}
@@ -2643,8 +2641,7 @@ static int tfa98xx_info_profile(struct snd_kcontrol *kcontrol,
 	if (err != 0)
 		return -EINVAL;
 
-	/* Use strncpy instead of strcpy, fix coverity issue*/
-	strncpy(uinfo->value.enumerated.name, profile_name, sizeof(uinfo->value.enumerated.name));
+	strcpy(uinfo->value.enumerated.name, profile_name);
 
 	return 0;
 }
@@ -3905,8 +3902,7 @@ static void tfa98xx_container_loaded(const struct firmware *cont, void *context)
 		tfa_err = tfa_load_cnt_v6(container, container_size);
 		if (tfa_err != tfa_error_ok) {
 			#ifdef OPLUS_ARCH_EXTENDS
-			/* Use strncpy instead of strcpy, fix coverity issue*/
-			strncpy(ftm_load_file, "load_file_fail", sizeof(ftm_load_file));
+			strcpy(ftm_load_file, "load_file_fail");
 			#endif /* OPLUS_ARCH_EXTENDS */
 			mutex_unlock(&tfa98xx_mutex);
 			kfree(container);
@@ -4205,8 +4201,7 @@ static void tfa98xx_dsp_init(struct tfa98xx *tfa98xx)
 		tfa98xx->init_count = 0;
 		#ifdef OPLUS_ARCH_EXTENDS
 		if (ftm_mode == BOOT_MODE_FACTORY) {
-			/* Use strncpy instead of strcpy, fix coverity issue*/
-			strncpy(ftm_path, "open_path_fail", sizeof(ftm_path));
+			strcpy(ftm_path, "open_path_fail");
 		}
 		#endif /* OPLUS_ARCH_EXTENDS */
 	}

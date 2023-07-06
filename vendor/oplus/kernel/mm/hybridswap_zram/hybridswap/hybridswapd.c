@@ -3,7 +3,7 @@
  * Copyright (C) 2020-2022 Oplus. All rights reserved.
  */
 
-#define pr_fmt(fmt) "[HYB_ZRAM]" fmt
+#define pr_fmt(fmt) "[HYBRIDSWAP]" fmt
 
 #include <uapi/linux/sched/types.h>
 #include <linux/sched.h>
@@ -67,7 +67,7 @@ struct hybridswapd_task {
 #define PAGES_PER_1MB (1 << 8)
 
 typedef bool (*free_swap_is_low_func)(void);
-free_swap_is_low_func free_swap_is_low_fp;
+extern free_swap_is_low_func free_swap_is_low_fp;
 
 unsigned long long global_anon_refault_ratio;
 unsigned long long swapd_skip_interval;
@@ -101,9 +101,8 @@ static unsigned long long hs_swap_last_anon_pagefault;
 static unsigned long last_anon_snapshot_time;
 static struct swapd_param zswap_param[SWAPD_MAX_LEVEL_NUM];
 static enum cpuhp_state swapd_online;
-static struct zram *swapd_zram[NUM_DEVICES];
+static struct zram *swapd_zram;
 static u64 max_reclaimin_size = MAX_RECLAIMIN_SZ;
-static u64 max_zram_used_limit = 0;
 atomic_long_t fault_out_pause = ATOMIC_LONG_INIT(0);
 atomic_long_t fault_out_pause_cnt = ATOMIC_LONG_INIT(0);
 #if IS_ENABLED(CONFIG_DRM_MSM) || IS_ENABLED(CONFIG_DRM_OPLUS_NOTIFY) || IS_ENABLED(CONFIG_OPLUS_MTK_DRM_GKI_NOTIFY)
@@ -116,8 +115,6 @@ static unsigned long swapd_last_window_start;
 static unsigned long swapd_last_window_shrink;
 static atomic_t swapd_pause = ATOMIC_INIT(0);
 static atomic_t swapd_enabled = ATOMIC_INIT(0);
-static atomic_t swapd_zram_inited = ATOMIC_INIT(0);
-
 static unsigned long swapd_nap_jiffies = 1;
 
 extern unsigned long try_to_free_mem_cgroup_pages(struct mem_cgroup *memcg,
@@ -769,12 +766,12 @@ static unsigned long get_totalreserve_pages(void)
 	return val;
 }
 
-struct pglist_data *first_online_pgdat_dup(void)
+struct pglist_data *first_online_pgdat(void)
 {
 	return NODE_DATA(first_online_node);
 }
 
-struct pglist_data *next_online_pgdat_dup(struct pglist_data *pgdat)
+struct pglist_data *next_online_pgdat(struct pglist_data *pgdat)
 {
 	int nid = next_online_node(pgdat->node_id);
 
@@ -783,14 +780,14 @@ struct pglist_data *next_online_pgdat_dup(struct pglist_data *pgdat)
 	return NODE_DATA(nid);
 }
 
-struct zone *next_zone_dup(struct zone *zone)
+struct zone *next_zone(struct zone *zone)
 {
 	pg_data_t *pgdat = zone->zone_pgdat;
 
 	if (zone < pgdat->node_zones + MAX_NR_ZONES - 1)
 		zone++;
 	else {
-		pgdat = next_online_pgdat_dup(pgdat);
+		pgdat = next_online_pgdat(pgdat);
 		if (pgdat)
 			zone = pgdat->node_zones;
 		else
@@ -798,25 +795,6 @@ struct zone *next_zone_dup(struct zone *zone)
 	}
 	return zone;
 }
-
-#define for_each_zone_dup(zone)			        \
-	for (zone = (first_online_pgdat_dup())->node_zones; \
-		zone;					\
-		zone = next_zone_dup(zone))
-
-#ifdef CONFIG_CONT_PTE_HUGEPAGE
-int get_cont_pte_pool_high(void)
-{
-	struct huge_page_pool *pool = get_cont_pte_pool();
-	if(unlikely(pool == NULL)){
-		log_err("can't get_cont_pte_pool!\n");
-		return 0;
-	}
-
-	return pool->high * HPAGE_CONT_PTE_NR;
-}
-#endif
-
 
 unsigned int system_cur_avail_buffers(void)
 {
@@ -828,15 +806,12 @@ unsigned int system_cur_avail_buffers(void)
 
 	buffers = global_zone_page_state(NR_FREE_PAGES) - all_totalreserve_pages;
 
-	for_each_zone_dup(zone)
+	for_each_zone(zone)
 		wmark_low += low_wmark_pages(zone);
 	pagecache = global_node_page_state(NR_ACTIVE_FILE) +
 		global_node_page_state(NR_INACTIVE_FILE);
 	pagecache -= min(pagecache / 2, wmark_low);
 	buffers += pagecache;
-#ifdef CONFIG_CONT_PTE_HUGEPAGE
-	buffers -= get_cont_pte_pool_high();
-#endif
 
 	reclaimable = global_node_page_state(NR_SLAB_RECLAIMABLE_B) +
 		global_node_page_state(NR_KERNEL_MISC_RECLAIMABLE);
@@ -929,7 +904,6 @@ bool get_memcg_anon_refault_status(struct mem_cgroup *memcg,
 	return false;
 }
 
-#ifndef CONFIG_CONT_PTE_HUGEPAGE
 static bool hybridswap_ratio_ok(void)
 {
 	struct hybridswap_stat *stat = NULL;
@@ -975,7 +949,6 @@ static bool get_hs_swap_anon_refault_status(void)
 false_out:
 	return false;
 }
-#endif
 
 static int reclaim_exceed_sleep_ms_write(
 		struct cgroup_subsys_state *css, struct cftype *cft, s64 val)
@@ -992,21 +965,6 @@ static s64 reclaim_exceed_sleep_ms_read(
 		struct cgroup_subsys_state *css, struct cftype *cft)
 {
 	return reclaim_exceed_sleep_ms;
-}
-
-static int zram_max_used_limit_mb_write(struct cgroup_subsys_state *css,
-		struct cftype *cft, s64 val)
-{
-	max_zram_used_limit = (val << 20);
-
-	return 0;
-
-}
-
-static s64 zram_max_used_limit_mb_read(struct cgroup_subsys_state *css,
-		struct cftype *cft)
-{
-	return max_zram_used_limit >> 20;
 }
 
 static int max_reclaimin_size_mb_write(
@@ -1254,12 +1212,6 @@ struct cftype mem_cgroup_swapd_legacy_files[] = {
 		.read_u64 = max_reclaimin_size_mb_read,
 	},
 	{
-		.name = "zram_max_used_limit_mb",
-		.flags = CFTYPE_ONLY_ON_ROOT,
-		.write_s64 = zram_max_used_limit_mb_write,
-		.read_s64 = zram_max_used_limit_mb_read,
-	},
-	{
 		.name = "swapd_shrink_parameter",
 		.flags = CFTYPE_ONLY_ON_ROOT,
 		.write = swapd_shrink_parameter_write,
@@ -1333,78 +1285,28 @@ static void snapshotd_exit(void)
 
 #define INC_EXTRA_ZRAM_RATIO (2)
 
-static void nr_zram_base_pages(struct zram *zram, int *nr)
-{
-#ifdef CONFIG_CONT_PTE_HUGEPAGE_64K_ZRAM
-	*nr =  is_thp_zram(zram) ? CONT_PTES : 1;
-#else
-	*nr = 1;
-#endif
-}
-
 static unsigned long get_nr_zram_increase(void)
 {
-	int i;
-	unsigned long ret = 0;
-	int nr;
+	if (unlikely(!swapd_zram))
+		return 0;
 
-	for (i = 0; i < NUM_DEVICES; i++) {
-		if (!swapd_zram[i])
-			continue;
-
-		nr_zram_base_pages(swapd_zram[i], &nr);
-		ret += swapd_zram[i]->increase_nr_pages * nr;
-	}
-
-	return ret;
+	return swapd_zram->increase_nr_pages;
 }
 
-unsigned long zram_used_pages(void)
+static unsigned long zram_used_pages(void)
 {
-	int i;
-	int nr;
+	if (unlikely(!swapd_zram))
+		return 0;
 
-	unsigned long ret = 0;
-	for (i = 0; i < NUM_DEVICES; i++) {
-		if (!swapd_zram[i])
-			continue;
-		nr_zram_base_pages(swapd_zram[i], &nr);
-		ret += (u64)atomic64_read(&swapd_zram[i]->stats.pages_stored) * nr;
-	}
-
-	return ret;
-}
-
-unsigned long zram_total_compressed_size(void)
-{
-	int i;
-	unsigned long ret = 0;
-
-	for (i = 0; i < NUM_DEVICES; i++) {
-		if (!swapd_zram[i])
-			continue;
-
-		ret += (u64)atomic64_read(&swapd_zram[i]->stats.compr_data_size);
-	}
-
-	return ret;
+	return (u64)atomic64_read(&swapd_zram->stats.pages_stored);
 }
 
 static unsigned long zram_same_pages(void)
 {
-	int i;
-	unsigned long ret = 0;
-	int nr;
+	if (unlikely(!swapd_zram))
+		return 0;
 
-	for (i = 0; i < NUM_DEVICES; i++) {
-		if (!swapd_zram[i])
-			continue;
-		nr_zram_base_pages(swapd_zram[i], &nr);
-
-		ret += (u64)atomic64_read(&swapd_zram[i]->stats.same_pages) * nr;
-	}
-
-	return ret;
+	return (u64)atomic64_read(&swapd_zram->stats.same_pages);
 }
 
 /* add extra zram_increase / INC_EXTRA_ZRAM_RATIO to zram, same
@@ -1413,54 +1315,16 @@ static unsigned long zram_same_pages(void)
 unsigned long get_nr_zram_total(void)
 {
 	unsigned long nr_zram = 1;
-	int i;
 
-	for (i = 0; i < NUM_DEVICES; i++) {
-		if (!swapd_zram[i])
-			continue;
+	if (!swapd_zram)
+		return nr_zram;
 
-		nr_zram += swapd_zram[i]->disksize >> PAGE_SHIFT;
+	nr_zram = swapd_zram->disksize >> PAGE_SHIFT;
 #if (defined CONFIG_ZRAM_WRITEBACK) || (defined CONFIG_HYBRIDSWAP_CORE)
-		nr_zram -= (get_nr_zram_increase() / INC_EXTRA_ZRAM_RATIO);
+	nr_zram -= (get_nr_zram_increase() / INC_EXTRA_ZRAM_RATIO);
 #endif
-
-	}
 	return nr_zram ?: 1;
 }
-
-unsigned long max_nr_zram_total_used_limit(void)
-{
-	if (max_zram_used_limit)
-		return (max_zram_used_limit >> PAGE_SHIFT);
-
-	return get_nr_zram_total();
-}
-
-unsigned long read_zram_used_pages(int inx)
-{
-	if (!swapd_zram[inx])
-		return 0;
-	if (inx == 1)
-		return atomic64_read(&swapd_zram[inx]->stats.pages_stored) * CONT_PTES;
-
-	return atomic64_read(&swapd_zram[inx]->stats.pages_stored);
-}
-
-
-#ifdef CONFIG_CONT_PTE_HUGEPAGE
-static bool zram_inx_is_full(int inx)
-{
-	unsigned long nr_used, nr_total;
-
-	if (swapd_zram[inx]) {
-		nr_used = atomic64_read(&swapd_zram[inx]->stats.pages_stored) * CONT_PTES;
-		nr_total = swapd_zram[inx]->disksize >> PAGE_SHIFT;
-
-		return (nr_total - nr_used) < nr_total >> 6;
-	}
-	return false;
-}
-#endif
 
 bool zram_watermark_ok(void)
 {
@@ -1474,9 +1338,9 @@ bool zram_watermark_ok(void)
 		system_cur_avail_buffers();
 	diff_buffers *= SZ_1M / PAGE_SIZE;
 	diff_buffers *= get_compress_ratio_value() / 10;
-	diff_buffers = diff_buffers * percent_constant / max_nr_zram_total_used_limit();
+	diff_buffers = diff_buffers * percent_constant / get_nr_zram_total();
 
-	cur_ratio = zram_used * percent_constant / max_nr_zram_total_used_limit();
+	cur_ratio = zram_used * percent_constant / get_nr_zram_total();
 	wm  = min(get_zram_wm_ratio_value(),
 		  get_zram_wm_ratio_value() - diff_buffers);
 
@@ -1485,14 +1349,14 @@ bool zram_watermark_ok(void)
 
 static inline bool zram_is_full(void)
 {
-	return zram_used_pages() >= max_nr_zram_total_used_limit();
+	return zram_used_pages() >= get_nr_zram_total();
 }
 
 bool free_zram_is_ok(void)
 {
 	unsigned long nr_used, nr_tot, nr_rsv, same_pages;
 
-	nr_tot = max_nr_zram_total_used_limit();
+	nr_tot = get_nr_zram_total();
 	nr_used = zram_used_pages();
 	same_pages = zram_same_pages();
 	nr_rsv = nr_tot >> 6;
@@ -1503,7 +1367,6 @@ bool free_zram_is_ok(void)
 
 	return nr_used < (nr_tot - nr_rsv);
 }
-EXPORT_SYMBOL(free_zram_is_ok);
 
 static bool zram_need_swapout(void)
 {
@@ -1517,6 +1380,9 @@ static bool zram_need_swapout(void)
 
 	if (zram_wm_ok && avail_buffer_wm_ok && ufs_wm_ok)
 		return true;
+
+	log_info("zram_wm_ok %d avail_buffer_wm_ok %d ufs_wm_ok %d\n",
+			zram_wm_ok, avail_buffer_wm_ok, ufs_wm_ok);
 
 	return false;
 }
@@ -1560,73 +1426,10 @@ static bool is_cpu_busy(void)
 }
 #endif
 
-#ifdef CONFIG_CONT_PTE_HUGEPAGE
-enum reclaim_type {
-	RT_NONE,
-	RT_PAGE,
-	RT_CHP,
-	NR_RT_TYPE,
-};
-
-char *reclaim_type_text[NR_RT_TYPE] = {
-	"->NONE",
-	"->P",
-	"->CHP"
-};
-
-#define INBALANCE_BASE_FACTOR 30
-#define CHP_OVER_COMPRESSED_RATIO 150 /* zram1 vs anon hugepages: 1.5 vs 1*/
-#define INBALANCE_CHP_FACTOR 15
-#define SHALLOW_CMA_POOL_FACTOR 2 /* cma pool is less than 2 * high */
-
-static inline int get_hyb_reclaim_type(void)
-{
-	int type = RT_NONE;
-	unsigned long anon_pg, anon_chp_pg, swap_pg,
-		      swap_chp_pg, base_factor, chp_factor;
-	struct huge_page_pool *pool = get_cont_pte_pool();
-	bool cma_pool_shallow;
-
-	if(unlikely(pool == NULL)){
-		log_err("can't get_cont_pte_pool!\n");
-		return type;
-	}
-
-	anon_chp_pg = global_node_page_state(NR_ANON_THPS) * HPAGE_CONT_PTE_NR;
-	swap_chp_pg = read_zram_used_pages(1);
-
-	anon_pg = global_node_page_state(NR_ANON_MAPPED) - anon_chp_pg;
-	swap_pg = read_zram_used_pages(0);
-
-	base_factor = swap_pg * 100 / (anon_pg + 1);
-	chp_factor =  swap_chp_pg * 100 / (anon_chp_pg + 1);
-
-	cma_pool_shallow = pool->count[HPAGE_POOL_CMA] < SHALLOW_CMA_POOL_FACTOR * pool->high;
-
-	if ((cma_pool_shallow && chp_factor < CHP_OVER_COMPRESSED_RATIO) ||
-	     (long)(base_factor - chp_factor) > INBALANCE_CHP_FACTOR)
-		type =  RT_CHP;
-	else if ((long)(chp_factor - base_factor) > INBALANCE_BASE_FACTOR)
-		type =  RT_PAGE;
-
-	trace_printk("@ %s:%d anon_pg: %lu anon_chp_pg: %lu swap_pg: %lu "
-			"swap_chp_pg: %lu base_factor:%lu chp_factor:%lu  type:%s cma_count:%d  2*high:%d cma_pool_shallow:%d "
-			"(base_factor - chp_factor):%ld (chp_factor - base_factor):%ld @\n",
-			__func__, __LINE__, anon_pg, anon_chp_pg, swap_pg, swap_chp_pg, base_factor,
-			chp_factor,  reclaim_type_text[type], pool->count[HPAGE_POOL_CMA],
-			SHALLOW_CMA_POOL_FACTOR * pool->high,
-			cma_pool_shallow, (long)(base_factor - chp_factor),
-			(long)(chp_factor - base_factor));
-
-	return type;
-}
-#endif
-
 static void wakeup_swapd(pg_data_t *pgdat)
 {
 	unsigned long curr_interval;
 	struct hybridswapd_task *hyb_task = PGDAT_ITEM_DATA(pgdat);
-	int i;
 
 	if (!hyb_task || !hyb_task->swapd)
 		return;
@@ -1635,10 +1438,6 @@ static void wakeup_swapd(pg_data_t *pgdat)
 		count_swapd_event(SWAPD_MANUAL_PAUSE);
 		return;
 	}
-
-	for (i = 0; i < NUM_DEVICES; i++)
-		if (!swapd_zram[i])
-			return;
 
 #if IS_ENABLED(CONFIG_DRM_MSM) || IS_ENABLED(CONFIG_DRM_OPLUS_NOTIFY) || IS_ENABLED(CONFIG_OPLUS_MTK_DRM_GKI_NOTIFY)
 	if (atomic_read(&display_off))
@@ -1653,18 +1452,10 @@ static void wakeup_swapd(pg_data_t *pgdat)
 		wakeup_snapshotd();
 
 	/* wake up when the buffer is lower than min_avail_buffer */
-#ifdef CONFIG_CONT_PTE_HUGEPAGE
-	if (get_hyb_reclaim_type() == RT_NONE &&
-	    (min_buffer_is_suitable() || !free_zram_is_ok())) {
-		count_swapd_event(SWAPD_OVER_MIN_BUFFER_SKIP_TIMES);
-		return;
-	}
-#else
 	if (min_buffer_is_suitable()) {
 		count_swapd_event(SWAPD_OVER_MIN_BUFFER_SKIP_TIMES);
 		return;
 	}
-#endif
 
 	curr_interval = jiffies_to_msecs(jiffies - last_swapd_time);
 	if (curr_interval < swapd_skip_interval) {
@@ -1719,7 +1510,7 @@ static inline u64 calc_shrink_ratio(pg_data_t *pgdat)
 {
 	struct mem_cgroup *memcg = NULL;
 	const u32 percent_constant = 100;
-	u64 global_reclaimed = 0;
+	u64 total_can_reclaimed = 0;
 
 	while ((memcg = get_next_memcg(memcg))) {
 		s64 nr_anon, nr_zram, nr_eswap, total, can_reclaimed, thresh;
@@ -1748,133 +1539,12 @@ static inline u64 calc_shrink_ratio(pg_data_t *pgdat)
 				page_to_kb(nr_eswap), page_to_kb(total),
 				(nr_zram + nr_eswap) * 100 / (total + 1),
 				thresh);
-		global_reclaimed += hybs->can_reclaimed;
+		total_can_reclaimed += hybs->can_reclaimed;
 	}
 
-	return global_reclaimed;
+	return total_can_reclaimed;
 }
 
-
-#ifdef CONFIG_CONT_PTE_HUGEPAGE
-static unsigned long calc_each_memcg_pages(int type)
-{
-	struct mem_cgroup *memcg = NULL;
-	struct chp_lruvec *lruvec;
-	unsigned long global_reclaimed = 0;
-	struct mem_cgroup_per_node *mz;
-
-	while ((memcg = get_next_memcg(memcg))) {
-		unsigned long nr = 0;
-		int zid;
-		memcg_hybs_t *hybs;
-
-		hybs = MEMCGRP_ITEM_DATA(memcg);
-		if (!hybs)
-			continue;
-
-		switch (type) {
-		case RT_PAGE:
-			mz = memcg->nodeinfo[0];
-			for (zid = 0; zid < MAX_NR_ZONES; zid++)
-				nr += READ_ONCE(mz->lru_zone_size[zid][LRU_INACTIVE_ANON]) +
-					READ_ONCE(mz->lru_zone_size[zid][LRU_ACTIVE_ANON]);
-			break;
-		case RT_CHP:
-			lruvec = (struct chp_lruvec *)memcg->deferred_split_queue.split_queue_len;
-			for (zid = 0; zid < MAX_NR_ZONES; zid++)
-				nr += READ_ONCE(lruvec->lru_zone_size[zid][LRU_INACTIVE_ANON]) +
-					READ_ONCE(lruvec->lru_zone_size[zid][LRU_ACTIVE_ANON]);
-			break;
-		}
-		hybs->can_reclaimed = nr;
-		global_reclaimed += nr;
-	}
-	return global_reclaimed;
-}
-
-
-static unsigned long shrink_memcg_chp_pages(void)
-{
-	struct mem_cgroup *memcg = NULL;
-	unsigned long tot_reclaimed = 0;
-	long nr_to_reclaim = 0;
-	unsigned long global_reclaimed = 0;
-	unsigned long batch_per_cycle = (SZ_32M >> PAGE_SHIFT);
-	unsigned long start_js = jiffies;
-	unsigned long reclaim_cycles;
-	gfp_t gfp_mask = GFP_KERNEL;
-	int type = RT_PAGE;
-	int zram_inx = 0;
-	int min_cluster = SWAP_CLUSTER_MAX;
-
-	nr_to_reclaim = 128 * (SZ_1M >> PAGE_SHIFT);
-
-	type = get_hyb_reclaim_type();
-	/* available mem is low, relaim nomal page! */
-	if (type == RT_NONE)
-		type = RT_PAGE;
-	else if (type == RT_CHP) {
-		zram_inx = 1;
-		gfp_mask |= POOL_USER_ALLOC;
-		min_cluster = CHP_SWAP_CLUSTER_MAX;
-	}
-
-	global_reclaimed = calc_each_memcg_pages(type);
-	log_info(" global_reclaimed: %lu ", global_reclaimed);
-	if (unlikely(!global_reclaimed))
-		goto out;
-
-	nr_to_reclaim = min(nr_to_reclaim, (long)global_reclaimed);
-	reclaim_cycles = nr_to_reclaim / batch_per_cycle;
-again:
-	while ((memcg = get_next_memcg(memcg))) {
-		memcg_hybs_t *hybs;
-		unsigned long nr_reclaimed, to_reclaim;
-
-		if (is_fg_mem_cgroup(memcg))
-			continue;
-
-		hybs = MEMCGRP_ITEM_DATA(memcg);
-
-		to_reclaim = batch_per_cycle * hybs->can_reclaimed / global_reclaimed;
-
-		if (to_reclaim < min_cluster) {
-			hybs->can_reclaimed = 0;
-			continue;
-		}
-
-		nr_reclaimed = try_to_free_mem_cgroup_pages(memcg, to_reclaim,
-							    gfp_mask, true);
-
-		hybs->can_reclaimed -= nr_reclaimed;
-		if (hybs->can_reclaimed < 0)
-			hybs->can_reclaimed = 0;
-
-		tot_reclaimed += nr_reclaimed;
-
-		if (tot_reclaimed >= nr_to_reclaim) {
-			get_next_memcg_break(memcg);
-			goto out;
-		}
-
-		if (swapd_nap_jiffies && time_after_eq(jiffies, start_js + swapd_nap_jiffies)) {
-			set_current_state(TASK_INTERRUPTIBLE);
-			schedule_timeout((jiffies - start_js) * 2);
-			start_js = jiffies;
-		}
-	}
-
-	if (!zram_inx_is_full(zram_inx) && --reclaim_cycles)
-		goto again;
-out:
-	log_info("t: %s nr_to_reclaim: %lu total_reclaimed: %lu global_reclaimed: %lu\n",
-		 reclaim_type_text[type], nr_to_reclaim, tot_reclaimed, global_reclaimed);
-	return tot_reclaimed;
-}
-
-#endif
-
-#ifndef CONFIG_CONT_PTE_HUGEPAGE
 static unsigned long swapd_shrink_anon(pg_data_t *pgdat,
 		unsigned long nr_to_reclaim)
 {
@@ -2017,7 +1687,6 @@ static void swapd_shrink_node(pg_data_t *pgdat)
 	log_info("total_reclaimed %lu KB, avail buffer %lu %lu MB, swapd_skip_interval %llu\n",
 			nr_reclaimed * 4, before_avail, after_avail, swapd_skip_interval);
 }
-#endif
 
 static int swapd(void *p)
 {
@@ -2050,23 +1719,15 @@ static int swapd(void *p)
 		count_swapd_event(SWAPD_WAKEUP);
 		/*swapd_pressure_report(LEVEL_LOW);*/
 
-
-#ifdef CONFIG_CONT_PTE_HUGEPAGE
-		shrink_memcg_chp_pages();
-#else
 		if (get_hs_swap_anon_refault_status() && hybridswap_ratio_ok()) {
 			refault = true;
 			count_swapd_event(SWAPD_REFAULT);
 			goto do_eswap;
 		}
-		swapd_shrink_node(pgdat);
-#endif
-		last_swapd_time = jiffies;
 
-#ifdef CONFIG_CONT_PTE_HUGEPAGE
-#else
+		swapd_shrink_node(pgdat);
+		last_swapd_time = jiffies;
 do_eswap:
-#endif
 		fault_out_pause_value = atomic_long_read(&fault_out_pause);
 #if IS_ENABLED(CONFIG_DRM_MSM) || IS_ENABLED(CONFIG_DRM_OPLUS_NOTIFY) || IS_ENABLED(CONFIG_OPLUS_MTK_DRM_GKI_NOTIFY)
 		display_un_blank = !atomic_read(&display_off);
@@ -2366,7 +2027,6 @@ void swapd_pre_deinit(void)
 int swapd_init(struct zram *zram)
 {
 	int ret;
-	int idx = zram->disk->first_minor;
 
 	ret = register_memory_notifier(&swapd_notifier_nb);
 	if (ret) {
@@ -2402,12 +2062,9 @@ int swapd_init(struct zram *zram)
 		goto create_swapd_fail;
 	}
 
-	if (!swapd_zram[idx])
-		swapd_zram[idx] = zram;
-
+	swapd_zram = zram;
 	atomic_set(&swapd_enabled, 1);
 	return 0;
-
 
 create_swapd_fail:
 	snapshotd_exit();
@@ -2439,28 +2096,4 @@ void swapd_exit(void)
 bool hybridswap_swapd_enabled(void)
 {
 	return !!atomic_read(&swapd_enabled);
-}
-
-int hybridswap_swapd_zram_init_set(struct zram *zram)
-{
-	int idx = zram->disk->first_minor;
-	int val;
-
-	BUG_ON(idx > NUM_DEVICES -1);
-	if (swapd_zram[idx]) {
-		log_warn("swapd_zram %d is already init!\n",idx);
-		return -1;
-	}
-
-	swapd_zram[idx] = zram;
-	val = atomic_read(&swapd_zram_inited) + (1 << idx);
-	atomic_set(&swapd_zram_inited, val);
-	log_info("swapd_zram %d init!\n",idx);
-
-	return 0;
-}
-
-int hybridswap_swapd_zram_init_get(void)
-{
-	return atomic_read(&swapd_zram_inited);
 }

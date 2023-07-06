@@ -496,24 +496,12 @@ void oplus_adsp_voocphy_reset_status(void)
 		oplus_chglib_notify_ap(chip->dev, FAST_NOTIFY_ABSENT);
 }
 
-static int  oplus_adsp_voocphy_get_batt_curve_current(struct device *dev)
-{
-	struct oplus_voocphy_manager *chip;
-
-	if (dev == NULL)
-		return 100;
-	chip = dev_get_drvdata(dev);
-
-	return oplus_adsp_batt_curve_current();
-}
-
 struct hw_vphy_info adsp_voocphy_vinf = {
 	.vphy_switch_chg_mode = oplus_adsp_voocphy_switch_chg_mode,
 	.vphy_get_fastchg_type  = oplus_adsp_voocphy_get_fastchg_type,
 	.vphy_get_fastchg_notify_status = oplus_adsp_voocphy_get_fastchg_notify_status,
 	.vphy_disconnect_detect = oplus_adsp_voocphy_disconnect_detect,
 	.vphy_clear_status = oplus_adsp_voocphy_clear_status,
-	.vphy_get_batt_curve_current = oplus_adsp_voocphy_get_batt_curve_current,
 };
 
 static int adsp_voocphy_probe(struct platform_device *pdev)

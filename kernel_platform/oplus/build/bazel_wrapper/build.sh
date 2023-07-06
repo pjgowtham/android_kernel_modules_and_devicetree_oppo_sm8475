@@ -1,5 +1,5 @@
 #!/bin/bash
-set -x
+
 KERNEL_PARAM=${1:-waipio}
 BUILD_VARIANT=user
 SOC_VARIANT=QCOM
@@ -22,22 +22,22 @@ GKI_PREBUILTS_DIR="prebuilts/gki-kernel-binaries"
 ## this values exported to bazel should not use real path
 ## relative to path vnd/out/bazel_output/execroot/__main__
 KERNEL_PLATFORM_RELATIVE_PATH="../../../../kernel_platform"
-if [ "${KERNEL_PARAM}" == "waipio" ]; then
-  GKI_KERNEL_BINARIES_RELATIVE_PATH="${KERNEL_PLATFORM_RELATIVE_PATH}/${KERNEL_OUT_DIR}/msm-waipio-waipio-gki/gki_kernel/dist"
-else
-  GKI_KERNEL_BINARIES_RELATIVE_PATH="${KERNEL_PLATFORM_RELATIVE_PATH}/${KERNEL_OUT_DIR}/msm-kernel-${KERNEL_PARAM}-gki/gki_kernel/dist"
-fi
+GKI_KERNEL_BINARIES_RELATIVE_PATH="${KERNEL_PLATFORM_RELATIVE_PATH}/${KERNEL_OUT_DIR}/gki_kernel/dist"
 OLD_ENVIRONMENT_RELATIVE_PATH="../../../bazel_workspace/kernel/environment"
 ##
 
 ## build commands
-BUILD_KERNEL_COMMAND="kernel_platform/build/android/prepare_vendor.sh ${KERNEL_PARAM} gki"
-BUILD_KERNEL_WITH_PREBUILT_GKB_COMMAND="GKI_PREBUILTS_DIR=${GKI_PREBUILTS_DIR} kernel_platform/build/android/prepare_vendor.sh ${KERNEL_PARAM} gki"
+BUILD_KERNEL_COMMAND="SKIP_MRPROPER=1 OUT_DIR=${KERNEL_OUT_DIR}
+  BUILD_CONFIG=./msm-kernel/build.config.msm.${KERNEL_PARAM} VARIANT=gki ./build/build.sh"
+BUILD_KERNEL_WITH_PREBUILT_GKB_COMMAND="SKIP_MRPROPER=1 OUT_DIR=${KERNEL_OUT_DIR}
+  BUILD_CONFIG=./msm-kernel/build.config.msm.${KERNEL_PARAM} GKI_PREBUILTS_DIR=${GKI_PREBUILTS_DIR}
+  VARIANT=gki ./build/build.sh"
 ##
 
 ## prepare environment
 rm -rf ${BAZEL_OUTPUT_REAL_PATH}
 rm -rf ${WORKSPACE_REAL_PATH}
+rm -rf ${KERNEL_PLATFORM_REAL_PATH}/${KERNEL_OUT_DIR}
 mkdir -p $(dirname ${WORKSPACE_REAL_PATH})
 cp -rf ${SCRIPT_REAL_PATH}/ ${WORKSPACE_REAL_PATH}
 # need to consider abi_gki_aarch64_oplus_internal, which not in kernel/common but affect building result
@@ -62,13 +62,17 @@ function copy_logs() {
 function build_kernel() {
   echo "========================================================"
   echo " Build kernel"
+  pushd ${KERNEL_PLATFORM_REAL_PATH} > /dev/null
   eval ${BUILD_KERNEL_COMMAND}
+  popd > /dev/null
 }
 
 function build_kernel_with_prebuilts_gki_kerenl_binaries() {
   echo "========================================================"
   echo " Build kernel with prebuilts gki kernel binares"
+  pushd ${KERNEL_PLATFORM_REAL_PATH} > /dev/null
   eval ${BUILD_KERNEL_WITH_PREBUILT_GKB_COMMAND}
+  popd > /dev/null
 }
 ##
 

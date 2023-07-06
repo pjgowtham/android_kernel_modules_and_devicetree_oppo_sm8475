@@ -12,12 +12,6 @@
 #include <linux/device.h>
 #include <linux/memcontrol.h>
 
-#ifdef CONFIG_CONT_PTE_HUGEPAGE
-#define NUM_DEVICES 2
-#else
-#define NUM_DEVICES 1
-#endif
-
 #define EXTENT_SHIFT        15
 #define EXTENT_SIZE         (1UL << EXTENT_SHIFT)
 #define EXTENT_PG_CNT		(EXTENT_SIZE >> PAGE_SHIFT)
@@ -53,7 +47,6 @@ int hybridswap_loglevel(void);
 			       __func__, __LINE__, ##__VA_ARGS__)
 
 static inline void pr_none(void) {}
-/* TODO remove loglevel condition */
 #define hybp(l, f, ...) do {						\
 	(l <= hybridswap_loglevel()) ? pt(l, f, ##__VA_ARGS__) :	\
 				       pr_none();			\
@@ -552,21 +545,16 @@ extern void alloc_pages_slowpath_hook(void *data, gfp_t gfp_mask,
 extern void rmqueue_hook(void *data, struct zone *preferred_zone,
 			 struct zone *zone, unsigned int order, gfp_t gfp_flags,
 			 unsigned int alloc_flags, int migratetype);
-extern void free_zram_is_ok_hook(void *data, bool *retval);
-
 extern void __init swapd_pre_init(void);
 extern void swapd_pre_deinit(void);
 extern void update_swapd_memcg_param(struct mem_cgroup *memcg);
 extern bool free_zram_is_ok(void);
-extern unsigned long max_nr_zram_total_used_limit(void);
+extern unsigned long get_nr_zram_total(void);
 extern int swapd_init(struct zram *zram);
 extern void swapd_exit(void);
 extern bool hybridswap_swapd_enabled(void);
-extern int hybridswap_swapd_zram_init_set(struct zram *zram);
-extern int hybridswap_swapd_zram_init_get(void);
 #else
 static inline bool hybridswap_swapd_enabled(void) { return false; }
-static inline int hybridswap_swapd_zram_init(struct zram *zram) { return 0; }
 #endif
 
 #if IS_ENABLED(CONFIG_OPLUS_FEATURE_HEALTHINFO)
@@ -578,16 +566,4 @@ static inline bool is_fg_mem_cgroup(struct mem_cgroup *memcg)
 	return false;
 }
 #endif /* CONFIG_OPLUS_FEATURE_HEALTHINFO */
-
-#ifdef CONFIG_CONT_PTE_HUGEPAGE
-#ifdef CONFIG_CONT_PTE_HUGEPAGE_64K_ZRAM
-extern bool is_thp_zram(struct zram *zram);
-#endif
-extern struct huge_page_pool *get_cont_pte_pool(void);
-#else
-static inline bool is_thp_zram(struct zram *zram) {return false;}
-#endif
-
-extern unsigned long zram_used_pages(void);
-extern unsigned long zram_total_compressed_size(void);
 #endif /* end of HYBRIDSWAP_INTERNAL_H */

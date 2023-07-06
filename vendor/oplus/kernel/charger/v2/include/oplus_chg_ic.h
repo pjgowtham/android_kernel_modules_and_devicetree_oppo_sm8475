@@ -10,7 +10,7 @@
 #include "oplus_chg.h"
 
 #define OPLUS_CHG_IC_INIT_RETRY_DELAY	100
-#define OPLUS_CHG_IC_INIT_RETRY_MAX	3000
+#define OPLUS_CHG_IC_INIT_RETRY_MAX	1000
 #define OPLUS_CHG_IC_MANU_NAME_MAX	32
 #define OPLUS_CHG_IC_FW_ID_MAX		16
 
@@ -135,7 +135,7 @@ static inline void *oplus_chg_ic_get_drvdata(const struct oplus_chg_ic_dev *ic_d
 
 void oplus_chg_ic_list_lock(void);
 void oplus_chg_ic_list_unlock(void);
-struct oplus_chg_ic_dev *oplus_chg_ic_find_by_name(const char *name);
+struct oplus_chg_ic_dev *oplsu_chg_ic_find_by_name(const char *name);
 struct oplus_chg_ic_dev *of_get_oplus_chg_ic(struct device_node *node, const char *prop_name, int index);
 #ifdef OPLUS_CHG_REG_DUMP_ENABLE
 int oplus_chg_ic_reg_dump(struct oplus_chg_ic_dev *ic_dev);

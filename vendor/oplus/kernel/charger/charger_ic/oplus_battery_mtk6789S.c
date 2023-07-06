@@ -113,7 +113,6 @@ static int usb_status = 0;
 struct delayed_work ccdetect_work ;
 struct delayed_work wd0_detect_work ;
 extern struct oplus_chg_operations  oplus_chg_bq2589x_ops;
-extern struct oplus_chg_operations  oplus_chg_sgm41512_ops;
 extern void oplus_usbtemp_recover_func(struct oplus_chg_chip *chip);
 extern int oplus_usbtemp_monitor_common(void *data);
 /*extern int op10_subsys_init(void);
@@ -124,7 +123,6 @@ extern int adapter_ic_init(void);
 extern int hl7227_driver_init(void);
 extern nu1619_driver_init(void);*/
 extern int bq2589x_driver_init(void);
-extern int sgm41512_driver_init(void);
 extern int sc8547_subsys_init(void);
 extern int sc8547_slave_subsys_init(void);
 static void oplus_ccdetect_disable(void);
@@ -7045,7 +7043,6 @@ static int mtk_charger_probe(struct platform_device *pdev)
 	struct oplus_chg_chip *oplus_chip;
 	int level = 0;
 	int rc = 0;
-	bool sgm41512_support;
 #endif
 
 	chr_err("%s: starts\n", __func__);
@@ -7055,9 +7052,6 @@ static int mtk_charger_probe(struct platform_device *pdev)
 		chr_err("%s get tcpc device type_c_port0 fail\n", __func__);
 		return -EPROBE_DEFER;
 	}
-
-	sgm41512_support = of_property_read_bool(pdev->dev.of_node, "qcom,sgm41512_support");
-	chr_err("sgm41512 is supprot = %d\n", sgm41512_support);
 
 	oplus_chip = devm_kzalloc(&pdev->dev, sizeof(*oplus_chip), GFP_KERNEL);
 	if (!oplus_chip)
@@ -7072,15 +7066,8 @@ static int mtk_charger_probe(struct platform_device *pdev)
 			chg_err("[oplus_chg_init] gauge null, will do after bettery init.\n");
 			return -EPROBE_DEFER;
 		}
-		/*oplus_chip->chg_ops = &mtk6360_chg_ops;*/
+		//oplus_chip->chg_ops = &mtk6360_chg_ops;	
 		oplus_chip->chg_ops = &oplus_chg_bq2589x_ops;
-		if (sgm41512_support) {
-			oplus_chip->chg_ops = &oplus_chg_sgm41512_ops;
-			chr_info("success set oplus_chg_sgm41512_ops\n");
-		} else {
-			oplus_chip->chg_ops = &oplus_chg_bq2589x_ops;
-			chr_info("success set oplus_chg_bq2589x_ops\n");
-		}
 	} else {
 		chg_err("[oplus_chg_init] gauge[%d]vooc[%d]adapter[%d]\n",
 				oplus_gauge_check_chip_is_null(),
@@ -7169,10 +7156,6 @@ static int mtk_charger_probe(struct platform_device *pdev)
 	info->psy1 = power_supply_register(&pdev->dev, &info->psy_desc1,
 			&info->psy_cfg1);
 	info->chg_psy = power_supply_get_by_name("bq2589x");
-	if (sgm41512_support)
-		info->chg_psy = power_supply_get_by_name("sgm41512");
-	else
-		info->chg_psy = power_supply_get_by_name("bq2589x");
 
 	if (IS_ERR_OR_NULL(info->chg_psy))
 		chr_err("%s: devm power fail to get chg_psy\n", __func__);
@@ -7406,7 +7389,6 @@ static int __init mtk_charger_init(void)
 //	adapter_ic_init();
 	pr_err("bq2589x_driver_init\n");
 	bq2589x_driver_init();
-	sgm41512_driver_init();
 	sc8547_subsys_init();
 
 #endif

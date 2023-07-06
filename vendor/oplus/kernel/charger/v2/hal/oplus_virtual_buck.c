@@ -28,10 +28,6 @@
 
 #include "test-kit.h"
 
-#define DISCONNECT			0
-#define STANDARD_TYPEC_DEV_CONNECT	BIT(0)
-#define OTG_DEV_CONNECT			BIT(1)
-
 struct oplus_virtual_buck_child {
 	struct oplus_chg_ic_dev *ic_dev;
 	int index;
@@ -85,123 +81,20 @@ struct oplus_virtual_buck_ic {
 	struct nvmem_cell	*soc_backup_nvmem;
 
 #if IS_ENABLED(CONFIG_OPLUS_CHG_TEST_KIT)
+#ifndef CONFIG_OPLUS_CHARGER_MTK
 	struct test_feature *uart_gpio_test;
-	struct test_feature *typec_port_test;
+#endif
 #endif
 };
 
 #if IS_ENABLED(CONFIG_OPLUS_CHG_TEST_KIT)
-enum situations_type {
-	SITUATION_DEFAULT = 0,
-	SITUATION_IDLE,
-	SITUATION_OTG,
-	SITUATION_CHARGING
-};
-
-struct test_kit_typec_port_info g_typec_port_info[] = {
-	{
-		.name = "typec_port_idle",
-		.case_num = 1,
-		.status = TYPEC_PORT_ROLE_SNK,
-		.situation = SITUATION_IDLE,
-	},
-	{}
-};
-
-const struct test_feature_cfg g_typec_port_test_cfg = {
-	.name = "typec_port_test",
-	.test_info = (void *)g_typec_port_info,
-	.test_func = test_kit_typec_port_test,
-};
-
-bool test_kit_typec_port_check(void *info, char *buf, size_t len, size_t *use_size)
-{
-	struct test_kit_typec_port_info *typec_port_info = NULL;
-	struct oplus_virtual_buck_ic *vb = NULL;
-	enum oplus_chg_typec_port_role_type typec_mode;
-	int situation;
-	int otg_status;
-	bool present;
-	bool pass = true;
-	int rc;
-
-	if (info == NULL) {
-		chg_err("[TYPEC-PORT-CHECK]: info is NULL\n");
-		return false;
-	}
-	typec_port_info = info;
-	vb = typec_port_info->private_data;
-
-	if (buf == NULL) {
-		chg_err("[TYPEC-PORT-CHECK]: buf is NULL\n");
-		return false;
-	}
-	*use_size = 0;
-
-	rc = oplus_chg_ic_func(vb->ic_dev,
-			       OPLUS_IC_FUNC_BUCK_INPUT_PRESENT,
-			       &present);
-	if (rc < 0) {
-		chg_err("can't input present status, rc=%d\n", rc);
-		*use_size += snprintf(buf + *use_size, len - *use_size,
-			"[%s][typec check case: %d] can't input present status, rc=%d\n",
-			typec_port_info->name, typec_port_info->case_num, rc);
-		return false;
-	}
-	rc = oplus_chg_ic_func(vb->ic_dev,
-			       OPLUS_IC_FUNC_GET_OTG_ONLINE_STATUS,
-			       &otg_status);
-	if (rc < 0) {
-		chg_err("can't get otg status, rc=%d\n", rc);
-		*use_size += snprintf(buf + *use_size, len - *use_size,
-			"[%s][typec check case: %d] can't get otg status, rc=%d\n",
-			typec_port_info->name, typec_port_info->case_num, rc);
-		return false;
-	}
-
-	if (present)
-		situation = SITUATION_CHARGING;
-	else if (otg_status != DISCONNECT)
-		situation = SITUATION_OTG;
-	else
-		situation = SITUATION_IDLE;
-
-	if (situation != typec_port_info->situation) {
-		*use_size += snprintf(buf + *use_size, len - *use_size,
-			"[%s][typec check case: %d],situation expected: %d, actually: %d\n",
-			typec_port_info->name, typec_port_info->case_num,
-			typec_port_info->situation, situation);
-		pass = false;
-	}
-
-	rc = oplus_chg_ic_func(vb->ic_dev,
-			       OPLUS_IC_FUNC_GET_TYPEC_MODE,
-			       &typec_mode);
-	if (rc < 0) {
-		chg_err("can't get typec mode, rc=%d\n", rc);
-		*use_size += snprintf(buf + *use_size, len - *use_size,
-			"[%s][typec check case: %d] can't get typec mode, rc=%d\n",
-			typec_port_info->name, typec_port_info->case_num, rc);
-		return false;
-	}
-
-	if (typec_mode != typec_port_info->status) {
-		*use_size += snprintf(buf + *use_size, len - *use_size,
-			"[%s][typec check case: %d],typec mode error, expected: %d, actually: %u\n",
-			typec_port_info->name, typec_port_info->case_num,
-			typec_port_info->status, typec_mode);
-		pass = false;
-	}
-
-	return pass;
-}
-
+#ifndef CONFIG_OPLUS_CHARGER_MTK
 #define UART_TX_INFO_INDEX	0
 #define UART_RX_INFO_INDEX	1
-struct test_kit_soc_gpio_info g_uart_gpio_info[] = {
+struct test_kit_qcom_soc_gpio_info g_uart_gpio_info[] = {
 	{
 		.name = "uart_tx",
-		.is_out = false,
+		.is_out = true,
 		.is_high = false,
 		.func = 0,
 		.pull = 0,
@@ -221,11 +114,7 @@ struct test_kit_soc_gpio_info g_uart_gpio_info[] = {
 const struct test_feature_cfg g_uart_gpio_test_cfg = {
 	.name = "uart_gpio_test",
 	.test_info = (void *)g_uart_gpio_info,
-#if IS_ENABLED(CONFIG_OPLUS_CHARGER_MTK)
-	.test_func = test_kit_mtk_soc_gpio_test,
-#else
 	.test_func = test_kit_qcom_soc_gpio_test,
-#endif
 };
 
 static int oplus_virtual_buck_test_kit_init(struct oplus_virtual_buck_ic *chip)
@@ -233,23 +122,16 @@ static int oplus_virtual_buck_test_kit_init(struct oplus_virtual_buck_ic *chip)
 	chip->uart_gpio_test = test_feature_register(&g_uart_gpio_test_cfg, chip);
 	if (IS_ERR_OR_NULL(chip->uart_gpio_test))
 		chg_err("uart_gpio_test register error");
-	test_kit_reg_typec_port_check(test_kit_typec_port_check);
-	chip->typec_port_test = test_feature_register(&g_typec_port_test_cfg, chip);
-	if (IS_ERR_OR_NULL(chip->typec_port_test))
-		chg_err("typec_port_test register error");
-	g_typec_port_info[0].private_data = chip;
 
 	return 0;
 }
 
 static void oplus_virtual_buck_test_kit_exit(struct oplus_virtual_buck_ic *chip)
 {
-	if (!IS_ERR_OR_NULL(chip->typec_port_test))
-		test_feature_unregister(chip->typec_port_test);
 	if (!IS_ERR_OR_NULL(chip->uart_gpio_test))
 		test_feature_unregister(chip->uart_gpio_test);
-	test_kit_unreg_typec_port_check();
 }
+#endif /* CONFIG_OPLUS_CHARGER_MTK */
 #endif /* CONFIG_OPLUS_CHG_TEST_KIT */
 
 static int oplus_chg_vb_set_typec_mode(struct oplus_chg_ic_dev *ic_dev,
@@ -259,7 +141,7 @@ static int oplus_vb_virq_register(struct oplus_virtual_buck_ic *chip);
 static inline bool func_is_support(struct oplus_virtual_buck_child *ic,
 				   enum oplus_chg_ic_func func_id)
 {
-	switch (func_id) {
+	switch (ic->func_num) {
 	case OPLUS_IC_FUNC_INIT:
 	case OPLUS_IC_FUNC_EXIT:
 		return true; /* must support */
@@ -276,7 +158,7 @@ static inline bool func_is_support(struct oplus_virtual_buck_child *ic,
 static inline bool virq_is_support(struct oplus_virtual_buck_child *ic,
 				   enum oplus_chg_ic_virq_id virq_id)
 {
-	switch (virq_id) {
+	switch (ic->virq_num) {
 	case OPLUS_IC_VIRQ_ERR:
 	case OPLUS_IC_VIRQ_ONLINE:
 	case OPLUS_IC_VIRQ_OFFLINE:
@@ -632,26 +514,30 @@ static int oplus_vc_chg_2uart_pinctrl_init(struct oplus_virtual_buck_ic *chip)
 	struct pinctrl_state	*chg_2uart_active;
 	struct pinctrl_state	*chg_2uart_sleep;
 #if IS_ENABLED(CONFIG_OPLUS_CHG_TEST_KIT)
+#ifndef CONFIG_OPLUS_CHARGER_MTK
 	struct device_node *node = chip->dev->of_node;
 	struct gpio_chip *gpio_chip;
 	int uart_tx, uart_rx;
+#endif /* CONFIG_OPLUS_CHARGER_MTK */
 #endif /* CONFIG_OPLUS_CHG_TEST_KIT */
 
 #if IS_ENABLED(CONFIG_OPLUS_CHG_TEST_KIT)
+#ifndef CONFIG_OPLUS_CHARGER_MTK
 	uart_tx = of_get_named_gpio(node, "oplus,uart_tx-gpio", 0);
 	if (gpio_is_valid(uart_tx)) {
 		gpio_chip = gpio_to_chip(uart_tx);
 		g_uart_gpio_info[UART_TX_INFO_INDEX].chip = gpio_chip;
-		if (gpio_chip != NULL)
-			g_uart_gpio_info[UART_TX_INFO_INDEX].num = uart_tx - gpio_chip->base;
+		g_uart_gpio_info[UART_TX_INFO_INDEX].num =
+			uart_tx - gpio_chip->base;
 	}
 	uart_rx = of_get_named_gpio(node, "oplus,uart_rx-gpio", 0);
 	if (gpio_is_valid(uart_rx)) {
 		gpio_chip = gpio_to_chip(uart_rx);
 		g_uart_gpio_info[UART_RX_INFO_INDEX].chip = gpio_chip;
-		if (gpio_chip != NULL)
-			g_uart_gpio_info[UART_RX_INFO_INDEX].num = uart_rx - gpio_chip->base;
+		g_uart_gpio_info[UART_RX_INFO_INDEX].num =
+			uart_rx - gpio_chip->base;
 	}
+#endif /* CONFIG_OPLUS_CHARGER_MTK */
 #endif /* CONFIG_OPLUS_CHG_TEST_KIT */
 
 	chg_2uart_pinctrl = devm_pinctrl_get(chip->dev);
@@ -3525,6 +3411,9 @@ static int oplus_chg_vb_get_otg_switch_status(struct oplus_chg_ic_dev *ic_dev, b
 	return rc;
 }
 
+#define DISCONNECT			0
+#define STANDARD_TYPEC_DEV_CONNECT	BIT(0)
+#define OTG_DEV_CONNECT			BIT(1)
 static int oplus_chg_vb_get_otg_online_status(struct oplus_chg_ic_dev *ic_dev, int *status)
 {
 	struct oplus_virtual_buck_ic *vb;

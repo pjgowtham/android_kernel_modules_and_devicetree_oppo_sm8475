@@ -13,7 +13,6 @@
 #include <linux/uaccess.h>
 #include <linux/version.h>
 #include <oplus_chg_voter.h>
-#include <oplus_chg.h>
 
 #define NUM_MAX_CLIENTS		32
 #define DEBUG_FORCE_CLIENT	"DEBUG_FORCE_CLIENT"
@@ -658,9 +657,6 @@ static ssize_t votable_status_read(struct file *file, char __user *buff,
 	case VOTE_SET_ANY:
 		type_str = "Set_any";
 		break;
-	default:
-		chg_err("unknown votable type, type=%d\n", votable->type);
-		return -EINVAL;
 	}
 
 	effective_client_str = get_effective_client_locked(votable);

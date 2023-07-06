@@ -14,11 +14,6 @@
 #include <linux/cpumask.h>
 #include <linux/pm_opp.h>
 
-#ifdef pr_fmt
-#undef pr_fmt
-#endif
-#define pr_fmt(fmt) "OCH: " fmt
-
 /* add for midas collection */
 static DEFINE_MUTEX(och_mutex);
 static struct cpufreq_health_info och_data[64];
@@ -289,32 +284,6 @@ void cpufreq_health_get_newtask_state(struct cpufreq_policy *policy, int newtask
 	spin_unlock_irqrestore(&och->lock, flags);
 }
 EXPORT_SYMBOL_GPL(cpufreq_health_get_newtask_state);
-
-int freq_to_voltage(int cluster_id, unsigned int target_freq)
-{
-	int idx;
-	struct oplus_cpufreq_health *och;
-	unsigned int freq;
-
-	och = &oplus_cpufreq_health[cluster_id];
-
-	if (och->is_init == 0) {
-		pr_info("och driver init failed!\n");
-		return -EINVAL;
-	}
-
-	for (idx = 0; idx < och->len; idx++) {
-		freq = och->table[idx].frequency;
-
-		if (freq == target_freq)
-			return och->table[idx].voltage;
-	}
-
-	pr_info("freq_to_voltage: invalid target freq %d\n", target_freq);
-
-	return 0;
-}
-EXPORT_SYMBOL_GPL(freq_to_voltage);
 
 static int freq_table_get_closest_index(struct oplus_cpufreq_health *och, unsigned int target_freq)
 {

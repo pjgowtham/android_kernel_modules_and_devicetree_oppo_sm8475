@@ -319,35 +319,28 @@ static int oplus_chg_vphy_get_switch_mode(struct oplus_chg_ic_dev *ic_dev,
 					int *mode)
 {
 	struct oplus_virtual_vphy_ic *va;
+	int switch1_val, switch2_val;
 
 	if (ic_dev == NULL) {
 		chg_err("oplus_chg_ic_dev is NULL");
 		return -ENODEV;
 	}
 	va = oplus_chg_ic_get_drvdata(ic_dev);
-	*mode = va->switch_mode;
 
-	return 0;
-}
+	if (!gpio_is_valid(va->gpio.vphy_switch2_gpio))
+		switch2_val = 1;
+	else
+		switch2_val = gpio_get_value(va->gpio.vphy_switch2_gpio);
+	switch1_val = gpio_get_value(va->gpio.vphy_switch1_gpio);
 
-static int oplus_chg_vphy_reset_sleep(struct oplus_chg_ic_dev *ic_dev)
-{
-	int rc;
-	struct oplus_virtual_vphy_ic *va;
-
-	if (ic_dev == NULL) {
-		chg_err("oplus_chg_ic_dev is NULL");
-		return -ENODEV;
-	}
-	va = oplus_chg_ic_get_drvdata(ic_dev);
-	if (va->vphy == NULL) {
-		chg_err("no active vphy found");
-		return -ENODEV;
-	}
-
-	rc = oplus_chg_ic_func(va->vphy, OPLUS_IC_FUNC_VOOC_RESET_SLEEP);
-	if (rc < 0)
-		chg_err("voocphy reset sleep error, rc=%d\n", rc);
+	if (switch1_val == 0 && switch2_val == 1)
+		*mode = VOOC_SWITCH_MODE_NORMAL;
+	else if (switch1_val == 1 && switch2_val == 1)
+		*mode = VOOC_SWITCH_MODE_VOOC;
+	else if (switch1_val == 1 && switch2_val == 0)
+		*mode = VOOC_SWITCH_MODE_HEADPHONE;
+	else
+		return -EINVAL;
 
 	return 0;
 }
@@ -400,161 +393,6 @@ static int oplus_chg_vphy_get_cp_vbat(struct oplus_chg_ic_dev *ic_dev,
 	return rc;
 }
 
-static int oplus_chg_vphy_set_bcc_curr(struct oplus_chg_ic_dev *ic_dev,
-				      int *cp_data)
-{
-	int rc;
-	struct oplus_virtual_vphy_ic *va;
-
-	if (ic_dev == NULL) {
-		chg_err("oplus_chg_ic_dev is NULL");
-		return -ENODEV;
-	}
-	if (cp_data == NULL) {
-		chg_err("cp_data is NULL");
-		return -ENODEV;
-	}
-
-	va = oplus_chg_ic_get_drvdata(ic_dev);
-	if (va->vphy == NULL) {
-		chg_err("no active vphy found");
-		return -ENODEV;
-	}
-
-	rc = oplus_chg_ic_func(va->vphy, OPLUS_IC_FUNC_VOOCPHY_SET_BCC_CURR,
-			       cp_data);
-	if (rc < 0)
-		chg_err("get cp vbat error, rc=%d\n", rc);
-
-	chg_info("curr is %d\n", *cp_data);
-	return rc;
-}
-
-static int oplus_chg_vphy_get_bcc_max_curr(struct oplus_chg_ic_dev *ic_dev,
-				      int *cp_data)
-{
-	int rc;
-	struct oplus_virtual_vphy_ic *va;
-
-	if (ic_dev == NULL) {
-		chg_err("oplus_chg_ic_dev is NULL");
-		return -ENODEV;
-	}
-
-	va = oplus_chg_ic_get_drvdata(ic_dev);
-	if (va->vphy == NULL) {
-		chg_err("no active vphy found");
-		return -ENODEV;
-	}
-
-	rc = oplus_chg_ic_func(va->vphy, OPLUS_IC_FUNC_VOOCPHY_GET_BCC_MAX_CURR,
-			       cp_data);
-	if (rc < 0)
-		chg_err("get vphy bcc max curr error, rc=%d\n", rc);
-
-	return rc;
-}
-
-static int oplus_chg_vphy_get_bcc_min_curr(struct oplus_chg_ic_dev *ic_dev,
-				      int *cp_data)
-{
-	int rc;
-	struct oplus_virtual_vphy_ic *va;
-
-	if (ic_dev == NULL) {
-		chg_err("oplus_chg_ic_dev is NULL");
-		return -ENODEV;
-	}
-
-	va = oplus_chg_ic_get_drvdata(ic_dev);
-	if (va->vphy == NULL) {
-		chg_err("no active vphy found");
-		return -ENODEV;
-	}
-
-	rc = oplus_chg_ic_func(va->vphy, OPLUS_IC_FUNC_VOOCPHY_GET_BCC_MIN_CURR,
-			       cp_data);
-	if (rc < 0)
-		chg_err("get vphy bcc min curr error, rc=%d\n", rc);
-
-	return rc;
-}
-
-static int oplus_chg_vphy_get_bcc_exit_curr(struct oplus_chg_ic_dev *ic_dev,
-				      int *cp_data)
-{
-	int rc;
-	struct oplus_virtual_vphy_ic *va;
-
-	if (ic_dev == NULL) {
-		chg_err("oplus_chg_ic_dev is NULL");
-		return -ENODEV;
-	}
-
-	va = oplus_chg_ic_get_drvdata(ic_dev);
-	if (va->vphy == NULL) {
-		chg_err("no active vphy found");
-		return -ENODEV;
-	}
-
-	rc = oplus_chg_ic_func(va->vphy, OPLUS_IC_FUNC_VOOCPHY_GET_BCC_EXIT_CURR,
-			       cp_data);
-	if (rc < 0)
-		chg_err("get vphy bcc exit curr error, rc=%d\n", rc);
-
-	return rc;
-}
-
-static int oplus_chg_vphy_get_fastchg_ing(struct oplus_chg_ic_dev *ic_dev,
-				      int *cp_data)
-{
-	int rc;
-	struct oplus_virtual_vphy_ic *va;
-
-	if (ic_dev == NULL) {
-		chg_err("oplus_chg_ic_dev is NULL");
-		return -ENODEV;
-	}
-
-	va = oplus_chg_ic_get_drvdata(ic_dev);
-	if (va->vphy == NULL) {
-		chg_err("no active vphy found");
-		return -ENODEV;
-	}
-
-	rc = oplus_chg_ic_func(va->vphy, OPLUS_IC_FUNC_VOOCPHY_GET_FASTCHG_ING,
-			       cp_data);
-	if (rc < 0)
-		chg_err("get vphy fastchg ing error, rc=%d\n", rc);
-
-	return rc;
-}
-
-static int oplus_chg_vphy_get_bcc_temp_range(struct oplus_chg_ic_dev *ic_dev,
-				      int *cp_data)
-{
-	int rc;
-	struct oplus_virtual_vphy_ic *va;
-
-	if (ic_dev == NULL) {
-		chg_err("oplus_chg_ic_dev is NULL");
-		return -ENODEV;
-	}
-
-	va = oplus_chg_ic_get_drvdata(ic_dev);
-	if (va->vphy == NULL) {
-		chg_err("no active vphy found");
-		return -ENODEV;
-	}
-
-	rc = oplus_chg_ic_func(va->vphy, OPLUS_IC_FUNC_VOOCPHY_GET_BCC_TEMP_RANGE,
-			       cp_data);
-	if (rc < 0)
-		chg_err("get vphy bcc temp range error, rc=%d\n", rc);
-
-	return rc;
-}
-
 static int oplus_chg_vphy_set_chg_auto_mode(struct oplus_chg_ic_dev *ic_dev,
 					    bool enable)
 {
@@ -596,24 +434,6 @@ static int oplus_chg_vphy_get_vphy(struct oplus_chg_ic_dev *ic_dev,
 	*vphy = va->vphy;
 
 	return 0;
-}
-
-static int oplus_chg_vphy_get_curve_current(struct oplus_chg_ic_dev *ic_dev, int *curr)
-{
-	struct oplus_virtual_vphy_ic *va;
-	int rc;
-
-	if (ic_dev == NULL) {
-		chg_err("oplus_chg_ic_dev is NULL");
-		return -ENODEV;
-	}
-	va = oplus_chg_ic_get_drvdata(ic_dev);
-
-	rc = oplus_chg_ic_func(va->vphy, OPLUS_IC_FUNC_VOOC_GET_CURVE_CURR, curr);
-	if (rc < 0)
-		chg_err("failed to get curve current, rc=%d\n", rc);
-
-	return rc;
 }
 
 static void *oplus_chg_vphy_get_func(struct oplus_chg_ic_dev *ic_dev,
@@ -662,30 +482,6 @@ static void *oplus_chg_vphy_get_func(struct oplus_chg_ic_dev *ic_dev,
 		func = OPLUS_CHG_IC_FUNC_CHECK(OPLUS_IC_FUNC_VOOCPHY_GET_CP_VBAT,
 					       oplus_chg_vphy_get_cp_vbat);
 		break;
-	case OPLUS_IC_FUNC_VOOCPHY_SET_BCC_CURR:
-		func = OPLUS_CHG_IC_FUNC_CHECK(OPLUS_IC_FUNC_VOOCPHY_SET_BCC_CURR,
-					       oplus_chg_vphy_set_bcc_curr);
-		break;
-	case OPLUS_IC_FUNC_VOOCPHY_GET_BCC_MAX_CURR:
-		func = OPLUS_CHG_IC_FUNC_CHECK(OPLUS_IC_FUNC_VOOCPHY_GET_BCC_MAX_CURR,
-					       oplus_chg_vphy_get_bcc_max_curr);
-		break;
-	case OPLUS_IC_FUNC_VOOCPHY_GET_BCC_MIN_CURR:
-		func = OPLUS_CHG_IC_FUNC_CHECK(OPLUS_IC_FUNC_VOOCPHY_GET_BCC_MIN_CURR,
-					       oplus_chg_vphy_get_bcc_min_curr);
-		break;
-	case OPLUS_IC_FUNC_VOOCPHY_GET_BCC_EXIT_CURR:
-		func = OPLUS_CHG_IC_FUNC_CHECK(OPLUS_IC_FUNC_VOOCPHY_GET_BCC_EXIT_CURR,
-					       oplus_chg_vphy_get_bcc_exit_curr);
-		break;
-	case OPLUS_IC_FUNC_VOOCPHY_GET_FASTCHG_ING:
-		func = OPLUS_CHG_IC_FUNC_CHECK(OPLUS_IC_FUNC_VOOCPHY_GET_FASTCHG_ING,
-					       oplus_chg_vphy_get_fastchg_ing);
-		break;
-	case OPLUS_IC_FUNC_VOOCPHY_GET_BCC_TEMP_RANGE:
-		func = OPLUS_CHG_IC_FUNC_CHECK(OPLUS_IC_FUNC_VOOCPHY_GET_BCC_TEMP_RANGE,
-					       oplus_chg_vphy_get_bcc_temp_range);
-		break;
 	case OPLUS_IC_FUNC_VOOCPHY_SET_CHG_AUTO_MODE:
 		func = OPLUS_CHG_IC_FUNC_CHECK(OPLUS_IC_FUNC_VOOCPHY_SET_CHG_AUTO_MODE,
 					       oplus_chg_vphy_set_chg_auto_mode);
@@ -693,14 +489,6 @@ static void *oplus_chg_vphy_get_func(struct oplus_chg_ic_dev *ic_dev,
 	case OPLUS_IC_FUNC_VOOC_GET_IC_DEV:
 		func = OPLUS_CHG_IC_FUNC_CHECK(OPLUS_IC_FUNC_VOOC_GET_IC_DEV,
 					       oplus_chg_vphy_get_vphy);
-		break;
-	case OPLUS_IC_FUNC_VOOC_GET_CURVE_CURR:
-		func = OPLUS_CHG_IC_FUNC_CHECK(OPLUS_IC_FUNC_VOOC_GET_CURVE_CURR,
-					       oplus_chg_vphy_get_curve_current);
-		break;
-	case OPLUS_IC_FUNC_VOOC_RESET_SLEEP:
-		func = OPLUS_CHG_IC_FUNC_CHECK(OPLUS_IC_FUNC_VOOC_RESET_SLEEP,
-					       oplus_chg_vphy_reset_sleep);
 		break;
 	default:
 		chg_err("this func(=%d) is not supported\n", func_id);

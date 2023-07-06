@@ -632,10 +632,10 @@ static int silfp_resource_init(struct silfp_data *fp_dev,
 	silfp_hw_poweron(fp_dev);
 	mdelay(5);
 
-	/*ÉÏµçÖ®ºóÀ­¸ßRST£¬Ê¹ÄÜÄ£×é*/
+	/*上电之后拉高RST，使能模组*/
 	pinctrl_select_state(fp_dev->pin.pinctrl, fp_dev->pin.pins_rst_h);
 
-	/*ÅäÖÃspi µÄÉÏµçºóµÄÄ¬ÈÏ×´Ì¬£¬CSÄ£Ê½À­¸ßÊä³ö*/
+	/*配置spi 的上电后的默认状态，CS模式拉高输出*/
 	silfp_set_spi_default_status(fp_dev);
 
 	if (!ret) {

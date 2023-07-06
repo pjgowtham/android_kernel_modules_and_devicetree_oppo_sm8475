@@ -5,10 +5,6 @@
 #ifndef __HL7138_HEADER__
 #define __HL7138_HEADER__
 
-/* Register 00h */
-#define HL7138_REG_00					0x00	/* device id reg00 */
-#define HL7138_BA_VERSION				0x43
-
 /* Register 01h */
 #define HL7138_REG_01					0x01	//Reg01=0x00,default value
 #define	HL7138_STAT_CHG_MASK			0x80	//bit7
@@ -655,7 +651,6 @@
 
 /* Register 36h */
 #define HL7138_REG_A0                       0xA0
-#define HL7138_REG_A3                       0xA3
 #define HL7138_REG_A7						0xA7
 
 #endif

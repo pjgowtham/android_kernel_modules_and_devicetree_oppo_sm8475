@@ -53,12 +53,7 @@ int bright_screen_timer_restart(void)
 	/* Remove for MTK functioning */
 	if (!is_system_boot_completed()) {
 		BRIGHT_DEBUG_PRINTK("boot not complete, %s just return\n", __func__);
-		return -1;
-	}
-
-	if (is_dual_screen()) {
-		BRIGHT_DEBUG_PRINTK("dual screen not adapted, %s just return\n", __func__);
-		return 0;
+		/* return -1; */
 	}
 
 	if (g_bright_data.blank == THEIA_PANEL_UNBLANK_VALUE) {

@@ -61,7 +61,6 @@ enum votable_type {
 #define SWITCH_RANGE_VOTER	"SWITCH_TEMP_RANGE"
 #define NON_STANDARD_VOTER	"NON_STANDARD_VOTER"
 #define BATT_TEMP_VOTER		"BATT_TEMP_VOTER"
-#define CURR_LIMIT_VOTER	"CURR_LIMIT_VOTER"
 #define BATT_SOC_VOTER		"BATT_SOC_VOTER"
 #define WARM_SOC_VOTER		"WARM_SOC_VOTER"
 #define WARM_VOL_VOTER		"WARM_VOL_VOTER"
@@ -85,8 +84,6 @@ enum votable_type {
 #define CHAEGE_DISABLE_VOTER	"CHAEGE_DISABLE_VOTER"
 #define OTG_ONLINE_VOTER	"OTG_ONLINE_VOTER"
 #define COPYCAT_ADAPTER		"COPYCAT_ADAPTER"
-#define PARALLEL_VOTER		"PARALLEL_VOTER"
-#define BOOT_FASTCHG_ALLOW_VOTER	"BOOT_FASTCHG_ALLOW_VOTER"
 
 bool is_client_vote_enabled(struct votable *votable, const char *client_str);
 bool is_client_vote_enabled_locked(struct votable *votable,

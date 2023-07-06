@@ -26,7 +26,6 @@ enum oplus_mms_type {
 	OPLUS_MMS_TYPE_VOOC,
 	OPLUS_MMS_TYPE_AIRVOOC,
 	OPLUS_MMS_TYPE_COMM,
-	OPLUS_MMS_TYPE_PARALLEL,
 };
 
 enum mms_msg_type {

@@ -496,7 +496,7 @@ int sde_encoder_helper_wait_for_irq(struct sde_encoder_phys *phys_enc,
 				irq->name, irq->hw_idx);
 		SDE_EVT32(DRMID(phys_enc->parent), intr_idx, irq->hw_idx,
 				irq->irq_idx);
-		return -EINVAL;
+		return 0;
 	}
 
 	SDE_DEBUG_PHYS(phys_enc, "pending_cnt %d\n",
@@ -2355,13 +2355,8 @@ end:
 	return ret;
 }
 
-#ifndef OPLUS_FEATURE_DISPLAY
 static int sde_encoder_resource_control(struct drm_encoder *drm_enc,
 		u32 sw_event)
-#else
-int sde_encoder_resource_control(struct drm_encoder *drm_enc,
-		u32 sw_event)
-#endif /* OPLUS_FEATURE_DISPLAY */
 {
 	struct sde_encoder_virt *sde_enc;
 	struct msm_drm_private *priv;
@@ -4859,7 +4854,6 @@ int oplus_sync_panel_brightness_v2(struct drm_encoder *drm_enc)
 	last_te_timestamp = te_timestamp->timestamp;
 
 	sync_backlight = c_conn->bl_need_sync;
-	display->panel->oplus_priv.need_sync = sync_backlight;
 	c_conn->bl_need_sync = false;
 
 	if (sync_backlight) {
@@ -4870,10 +4864,7 @@ int oplus_sync_panel_brightness_v2(struct drm_encoder *drm_enc)
 			SDE_EVT32(us_per_frame, last_te_timestamp, delay);
 			usleep_range(delay, delay + 100);
 		}
-		if ((ktime_to_us(ktime_sub(ktime_get(), last_te_timestamp)) % us_per_frame) > (us_per_frame - DEBOUNCE_TIME)) {
-			SDE_EVT32(us_per_frame, last_te_timestamp);
-			usleep_range(DEBOUNCE_TIME + vsync_width, DEBOUNCE_TIME + 100 + vsync_width);
-		}
+
 		snprintf(tag_name, sizeof(tag_name), "%s: %d", display->display_type, brightness);
 		SDE_ATRACE_BEGIN(tag_name);
 		rc = oplus_set_brightness(c_conn->bl_device, brightness);

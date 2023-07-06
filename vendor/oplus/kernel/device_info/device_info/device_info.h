@@ -26,18 +26,6 @@ typedef enum
 	DDR_TYPE_UNUSED = 0x7FFFFFFF /**< For compatibility with deviceprogrammer(features not using DDR). */
 } DDR_TYPE __maybe_unused;
 
-typedef enum dramc_top_type {
-	DRAMC_TOP_TYPE_DDR1 = 1,
-	DRAMC_TOP_TYPE_LPDDR2,
-	DRAMC_TOP_TYPE_LPDDR3,
-	DRAMC_TOP_TYPE_PCDDR3,
-	DRAMC_TOP_TYPE_LPDDR4,
-	DRAMC_TOP_TYPE_LPDDR4X,
-	DRAMC_TOP_TYPE_LPDDR4P,
-	DRAMC_TOP_TYPE_LPDDR5,
-	DRAMC_TOP_TYPE_LPDDR5X,
-} DRAMC_TOP_TYPE;
-
 struct manufacture_info {
 	char name[INFO_LEN];
 	char *version;

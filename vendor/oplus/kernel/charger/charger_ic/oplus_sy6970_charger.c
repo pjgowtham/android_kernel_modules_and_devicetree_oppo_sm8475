@@ -29,7 +29,6 @@
 #include <mt-plat/mtk_boot.h>
 
 #include "../../mediatek/charger/mtk_charger_intf.h"
-#include "../oplus_chg_track.h"
 #include "../oplus_charger.h"
 #define _BQ25890H_
 #include "oplus_bq2589x_reg.h"
@@ -47,10 +46,6 @@
 
 extern void set_charger_ic(int sel);
 extern unsigned int is_project(int project);
-extern void oplus_get_usbtemp_volt(struct oplus_chg_chip *chip);
-extern void oplus_set_typec_sinkonly(void);
-extern bool oplus_usbtemp_condition(void);
-extern void oplus_set_typec_cc_open(void);
 
 /*charger current limit*/
 #define BQ_CHARGER_CURRENT_MAX_MA		3400
@@ -1051,7 +1046,7 @@ static int bq2589x_inform_charger_type(struct bq2589x *bq)
 			return -ENODEV;
 	}
 
-	if (bq->chg_type == CHARGER_UNKNOWN)
+	if (bq->chg_type == CHARGER_UNKNOWN || !bq->power_good)
 		propval.intval = 0;
 	else
 		propval.intval = 1;
@@ -1071,7 +1066,6 @@ static int bq2589x_inform_charger_type(struct bq2589x *bq)
 	if (ret < 0)
 		pr_notice("inform power supply charge type failed:%d\n", ret);
 
-	power_supply_changed(bq->psy);
 	return ret;
 }
 
@@ -1100,7 +1094,6 @@ static irqreturn_t bq2589x_irq_handler(int irq, void *data)
 		bq2589x_dump_regs(bq);
 	
 	if (!prev_pg && bq->power_good) {
-		oplus_chg_track_check_wired_charging_break(1);
 #ifdef CONFIG_TCPC_CLASS
 		if (!bq->chg_det_enable)
 			return IRQ_HANDLED;
@@ -1108,6 +1101,10 @@ static irqreturn_t bq2589x_irq_handler(int irq, void *data)
 		get_monotonic_boottime(&bq->ptime[0]);
 		pr_notice("adapter/usb inserted\n");
 	} else if (prev_pg && !bq->power_good) {
+#ifdef CONFIG_TCPC_CLASS
+		if (bq->chg_det_enable)
+			return IRQ_HANDLED;
+#endif
 		bq->pre_current_ma = -1;
 		bq->hvdcp_can_enabled = false;
 		bq->hvdcp_checked = false;
@@ -1121,14 +1118,12 @@ static irqreturn_t bq2589x_irq_handler(int irq, void *data)
 		}
 
 		bq2589x_inform_charger_type(bq);
-		oplus_chg_wake_update_work();
 		bq2589x_disable_hvdcp(bq);
 		bq2589x_switch_to_hvdcp(g_bq, HVDCP_DPF_DMF);
 		Charger_Detect_Release();
 		cancel_delayed_work_sync(&bq->bq2589x_aicr_setting_work);
 		cancel_delayed_work_sync(&bq->bq2589x_retry_adapter_detection);
 		cancel_delayed_work_sync(&bq->bq2589x_current_setting_work);
-		oplus_chg_track_check_wired_charging_break(0);
 		pr_notice("adapter/usb removed\n");
 		return IRQ_HANDLED;
 	} else if (!prev_pg && !bq->power_good) {
@@ -2966,10 +2961,6 @@ struct oplus_chg_operations  oplus_chg_bq2589x_ops = {
 	.oplus_chg_set_high_vbus = oplus_bq2589x_chg_set_high_vbus,
 	.enable_shipmode = bq2589x_enable_shipmode,
 	.oplus_chg_set_hz_mode = bq2589x_set_hz_mode,
-	.get_usbtemp_volt = oplus_get_usbtemp_volt,
-	.set_typec_sinkonly = oplus_set_typec_sinkonly,
-	.set_typec_cc_open = oplus_set_typec_cc_open,
-	.oplus_usbtemp_monitor_condition = oplus_usbtemp_condition,
 };
 
 static void retry_detection_work_callback(struct work_struct *work)

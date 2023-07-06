@@ -8,7 +8,7 @@ def init():
       output_dir=$$(realpath $$(dirname $(@)))
       mkdir -p $$output_dir
       source $$ENVIRONMENT
-      pushd $$KERNEL_PLATFORM_DIR/../
+      pushd $$KERNEL_PLATFORM_DIR
       eval $$BUILD_KERNEL_COMMAND > $$output_dir/kernel_log.txt
       result=$$?
       popd
@@ -21,7 +21,6 @@ def init():
         $$GKI_KERNEL_BINARIES_DIR/modules.builtin.modinfo  \
         $$GKI_KERNEL_BINARIES_DIR/System.map  \
         $$GKI_KERNEL_BINARIES_DIR/vmlinux  \
-        $$GKI_KERNEL_BINARIES_DIR/vmlinux.symvers \
-        $$GKI_KERNEL_BINARIES_DIR/system_dlkm.img
+        $$GKI_KERNEL_BINARIES_DIR/vmlinux.symvers
     """
   )

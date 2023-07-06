@@ -292,203 +292,6 @@ static void handle_oem_read_buffer(struct battery_chg_dev *bcdev,
 
 	complete(&bcdev->oem_read_ack);
 }
-
-static bool oplus_vooc_get_fastchg_ing(struct battery_chg_dev *bcdev);
-static int oplus_vooc_get_fast_chg_type(struct battery_chg_dev *bcdev);
-static int bcc_battery_chg_write(struct battery_chg_dev *bcdev, void *data,
-	int len)
-{
-	int rc;
-
-	if ((NULL == bcdev) || (NULL == data)) {
-		chg_err("bcdev is NULL");
-		return -ENODEV;
-	}
-
-	if (atomic_read(&bcdev->state) == PMIC_GLINK_STATE_DOWN) {
-		chg_err("glink state is down\n");
-		return -ENOTCONN;
-	}
-
-	mutex_lock(&bcdev->bcc_read_buffer_lock);
-	reinit_completion(&bcdev->bcc_read_ack);
-	rc = pmic_glink_write(bcdev->client, data, len);
-	if (!rc) {
-		/* rc = wait_for_completion_timeout(&bcdev->bcc_read_ack,
-			msecs_to_jiffies(OEM_READ_WAIT_TIME_MS)); */
-		if (!rc) {
-			chg_err("Error, timed out sending message\n");
-			mutex_unlock(&bcdev->bcc_read_buffer_lock);
-			return -ETIMEDOUT;
-		}
-
-		rc = 0;
-	}
-	mutex_unlock(&bcdev->bcc_read_buffer_lock);
-
-	return rc;
-}
-
-static int bcc_read_buffer(struct battery_chg_dev *bcdev)
-{
-	struct oem_read_buffer_req_msg req_msg = { { 0 } };
-
-	if (NULL == bcdev) {
-		chg_err("bcdev is NULL");
-		return -ENODEV;
-	}
-
-	req_msg.data_size = sizeof(bcdev->bcc_read_buffer_dump.data_buffer);
-	req_msg.hdr.owner = MSG_OWNER_BC;
-	req_msg.hdr.type = MSG_TYPE_REQ_RESP;
-	req_msg.hdr.opcode = BCC_OPCODE_READ_BUFFER;
-
-	return bcc_battery_chg_write(bcdev, &req_msg, sizeof(req_msg));
-}
-
-static void handle_bcc_read_buffer(struct battery_chg_dev *bcdev,
-	struct oem_read_buffer_resp_msg *resp_msg, size_t len)
-{
-	u32 buf_len;
-	struct oplus_mms *wired_topic;
-
-	if ((NULL == bcdev) || (NULL == resp_msg)) {
-		chg_err("bcdev is NULL");
-		return;
-	}
-
-	if (len > sizeof(bcdev->bcc_read_buffer_dump)) {
-		chg_err("Incorrect length received: %zu expected: %u\n", len,
-		(unsigned int)sizeof(bcdev->bcc_read_buffer_dump));
-		return;
-	}
-
-	buf_len = resp_msg->data_size;
-	if (buf_len > sizeof(bcdev->bcc_read_buffer_dump.data_buffer)) {
-		chg_err("Incorrect buffer length: %u\n", buf_len);
-		return;
-	}
-
-	if (buf_len == 0) {
-		chg_err("Incorrect buffer length: %u\n", buf_len);
-		return;
-	}
-	memcpy(bcdev->bcc_read_buffer_dump.data_buffer, resp_msg->data_buffer, buf_len);
-
-	if (oplus_vooc_get_fastchg_ing(bcdev)
-		&& oplus_vooc_get_fast_chg_type(bcdev) != CHARGER_SUBTYPE_FASTCHG_VOOC) {
-		bcdev->bcc_read_buffer_dump.data_buffer[15] = 1;
-	} else {
-		bcdev->bcc_read_buffer_dump.data_buffer[15] = 0;
-	}
-
-	if (bcdev->bcc_read_buffer_dump.data_buffer[9] == 0) {
-		bcdev->bcc_read_buffer_dump.data_buffer[15] = 0;
-	}
-
-	bcdev->bcc_read_buffer_dump.data_buffer[8] = DIV_ROUND_CLOSEST((int)bcdev->bcc_read_buffer_dump.data_buffer[8], 1000);
-
-	wired_topic = oplus_mms_get_by_name("wired");
-	bcdev->bcc_read_buffer_dump.data_buffer[16] = oplus_wired_get_bcc_curr_done_status(wired_topic);
-
-	bcdev->bcc_read_buffer_dump.data_buffer[18] = 0; /* DOUBLE_SERIES_WOUND_CELLS; */
-
-	chg_info("----dod0_1[%d], dod0_2[%d], dod0_passed_q[%d], qmax_1[%d], qmax_2[%d], qmax_passed_q[%d], "
-		"voltage_cell1[%d], temperature[%d], batt_current[%d], max_current[%d], min_current[%d], voltage_cell2[%d], "
-		"soc_ext_1[%d], soc_ext_2[%d], atl_last_geat_current[%d], charging_flag[%d], bcc_curr_done[%d], guage[%d], batt_type[%d]",
-		bcdev->bcc_read_buffer_dump.data_buffer[0], bcdev->bcc_read_buffer_dump.data_buffer[1], bcdev->bcc_read_buffer_dump.data_buffer[2],
-		bcdev->bcc_read_buffer_dump.data_buffer[3], bcdev->bcc_read_buffer_dump.data_buffer[4], bcdev->bcc_read_buffer_dump.data_buffer[5],
-		bcdev->bcc_read_buffer_dump.data_buffer[6], bcdev->bcc_read_buffer_dump.data_buffer[7], bcdev->bcc_read_buffer_dump.data_buffer[8],
-		bcdev->bcc_read_buffer_dump.data_buffer[9], bcdev->bcc_read_buffer_dump.data_buffer[10], bcdev->bcc_read_buffer_dump.data_buffer[11],
-		bcdev->bcc_read_buffer_dump.data_buffer[12], bcdev->bcc_read_buffer_dump.data_buffer[13], bcdev->bcc_read_buffer_dump.data_buffer[14],
-		bcdev->bcc_read_buffer_dump.data_buffer[15], bcdev->bcc_read_buffer_dump.data_buffer[16], bcdev->bcc_read_buffer_dump.data_buffer[17],
-		bcdev->bcc_read_buffer_dump.data_buffer[18]);
-	complete(&bcdev->bcc_read_ack);
-}
-
-#define BCC_SET_DEBUG_PARMS 1
-#define BCC_PARMS_COUNT 19
-#define BCC_PAGE_SIZE 256
-#define BCC_N_DEBUG 0
-#define BCC_Y_DEBUG 1
-static int bcc_debug_mode  = BCC_N_DEBUG;
-static char bcc_debug_buf[BCC_PAGE_SIZE] = {0};
-static int oplus_get_bcc_parameters_from_adsp(struct oplus_chg_ic_dev *ic_dev, char *buf)
-{
-	int ret = 0;
-	struct battery_chg_dev *bcdev;
-	u8 tmpbuf[PAGE_SIZE] = {0};
-	int len = 0;
-	int i = 0;
-	int idx = 0;
-
-	if ((ic_dev == NULL) || (buf == NULL)) {
-		chg_err("oplus_chg_ic_dev is NULL");
-		return -ENODEV;
-	}
-	bcdev = oplus_chg_ic_get_drvdata(ic_dev);
-
-	if (!bcdev) {
-		chg_err("!!!bcdev null, oplus_get_batt_argv_buffer\n");
-		return -1;
-	}
-
-	ret = bcc_read_buffer(bcdev);
-
-	for (i = 0; i < BCC_PARMS_COUNT - 1; i++) {
-		len = snprintf(tmpbuf, BCC_PAGE_SIZE - idx,
-			"%d,", bcdev->bcc_read_buffer_dump.data_buffer[i]);
-		memcpy(&buf[idx], tmpbuf, len);
-		idx += len;
-	}
-	len = snprintf(tmpbuf, BCC_PAGE_SIZE - idx,
-		"%d", bcdev->bcc_read_buffer_dump.data_buffer[i]);
-	memcpy(&buf[idx], tmpbuf, len);
-#ifdef BCC_SET_DEBUG_PARMS
-	if (bcc_debug_mode & BCC_Y_DEBUG) {
-		memcpy(&buf[0], bcc_debug_buf, BCC_PAGE_SIZE);
-		chg_err("bcc_debug_buf:%s\n", bcc_debug_buf);
-		return ret;
-	}
-#endif
-	chg_info("buf:%s\n", buf);
-	return ret;
-}
-
-#define BCC_DEBUG_PARAM_SIZE 8
-static int oplus_set_bcc_debug_parameters(struct oplus_chg_ic_dev *ic_dev, const char *buf)
-{
-	int ret = 0;
-#ifdef BCC_SET_DEBUG_PARMS
-	char temp_buf[10] = {0};
-#endif
-
-	if ((ic_dev == NULL) || (buf == NULL)) {
-		chg_err("!!!ic_dev null\n");
-		return -ENODEV;
-	}
-
-#ifdef BCC_SET_DEBUG_PARMS
-	if (strlen(buf) <= BCC_PAGE_SIZE) {
-		if (strncpy(temp_buf, buf, 7)) {
-			chg_info("temp_buf:%s\n", temp_buf);
-		}
-		if (!strncmp(temp_buf, "Y_DEBUG", 7)) {
-			bcc_debug_mode = BCC_Y_DEBUG;
-			chg_info("BCC_Y_DEBUG:%d\n", bcc_debug_mode);
-		} else {
-			bcc_debug_mode = BCC_N_DEBUG;
-			chg_info("BCC_N_DEBUG:%d\n", bcc_debug_mode);
-		}
-		strncpy(bcc_debug_buf, buf + BCC_DEBUG_PARAM_SIZE, BCC_PAGE_SIZE);
-		chg_info("bcc_debug_buf:%s, temp_buf:%s\n", bcc_debug_buf, temp_buf);
-		return ret;
-	}
-#endif
-
-	chg_info("buf:%s\n", buf);
-	return ret;
-}
 #endif
 
 static int battery_chg_fw_write(struct battery_chg_dev *bcdev, void *data,
@@ -1120,29 +923,6 @@ static void oplus_set_otg_ovp_en_val(struct battery_chg_dev *bcdev, int value)
 
 	chg_err("<~OTG~>set value:%d, gpio_val:%d\n", value,
 		gpio_get_value(bcdev->oplus_custom_gpio.otg_ovp_en_gpio));
-}
-
-int oplus_adsp_batt_curve_current(void)
-{
-	int rc;
-	static int batt_current = 0;
-	struct battery_chg_dev *bcdev = g_bcdev;
-	struct psy_state *pst;
-
-	if (!bcdev) {
-		chg_err("bcdev is NULL!\n");
-		return -ENODEV;
-	}
-	pst = &bcdev->psy_list[PSY_TYPE_USB];
-
-	rc = read_property_id(bcdev, pst, USB_GET_BATT_CURR);
-	if (rc < 0) {
-		chg_err("read battery curr fail, rc=%d\n", rc);
-		return batt_current * 100;
-	}
-	batt_current = DIV_ROUND_CLOSEST((int)pst->prop[USB_GET_BATT_CURR], 1000);
-	chg_debug("get batt_curr = %d \n", batt_current);
-	return batt_current * 100;
 }
 
 int oplus_adsp_voocphy_get_fast_chg_type(void)
@@ -1981,8 +1761,6 @@ static int battery_chg_callback(void *priv, void *data, size_t len)
 #ifdef OPLUS_FEATURE_CHG_BASIC
 	else if (hdr->opcode == OEM_OPCODE_READ_BUFFER)
 		handle_oem_read_buffer(bcdev, data, len);
-	else if (hdr->opcode == BCC_OPCODE_READ_BUFFER)
-		handle_bcc_read_buffer(bcdev, data, len);
 #endif
 	else
 		handle_message(bcdev, data, len);
@@ -2128,34 +1906,6 @@ static void oplus_chg_set_match_temp_to_voocphy(void)
 	}
 
 	chg_debug("ap set match temp[%d] to voocphy\n", match_temp);
-}
-
-int oplus_set_bcc_curr_to_voocphy(struct oplus_chg_ic_dev *ic_dev, int *bcc_curr)
-{
-	int rc = 0;
-	struct battery_chg_dev *bcdev;
-	struct psy_state *pst = NULL;
-
-	if (ic_dev == NULL) {
-		chg_err("oplus_chg_ic_dev is NULL");
-		return -ENODEV;
-	}
-	if (bcc_curr == NULL) {
-		chg_err("bcc_curr is NULL");
-		return -ENODEV;
-	}
-
-	bcdev = oplus_chg_ic_get_drvdata(ic_dev);
-	pst = &bcdev->psy_list[PSY_TYPE_BATTERY];
-
-	rc = write_property_id(bcdev, pst, BATT_SET_BCC_CURRENT, *bcc_curr);
-	if (rc) {
-		chg_err("set bcc current fail, rc=%d\n", rc);
-		return rc;
-	}
-
-	chg_debug("ap set bcc current[%d] to voocphy\n", *bcc_curr);
-	return rc;
 }
 #endif /*OPLUS_FEATURE_CHG_BASIC*/
 
@@ -5737,10 +5487,6 @@ static void *oplus_chg_8350_buck_get_func(struct oplus_chg_ic_dev *ic_dev, enum 
 	case OPLUS_IC_FUNC_BUCK_HARDWARE_INIT:
 		func = OPLUS_CHG_IC_FUNC_CHECK(OPLUS_IC_FUNC_BUCK_HARDWARE_INIT, oplus_chg_8350_hardware_init);
 		break;
-	case OPLUS_IC_FUNC_VOOCPHY_SET_BCC_CURR:
-		func = OPLUS_CHG_IC_FUNC_CHECK(OPLUS_IC_FUNC_VOOCPHY_SET_BCC_CURR, oplus_set_bcc_curr_to_voocphy);
-		break;
-
 	default:
 		chg_err("this func(=%d) is not supported\n", func_id);
 		func = NULL;
@@ -5786,6 +5532,32 @@ static int oplus_sm8350_reg_dump(struct oplus_chg_ic_dev *ic_dev)
 
 static int oplus_sm8350_smt_test(struct oplus_chg_ic_dev *ic_dev, char buf[], int len)
 {
+	return 0;
+}
+
+static int oplus_sm8350_get_batt_vol(struct oplus_chg_ic_dev *ic_dev,
+				      int index, int *vol_mv)
+{
+	struct battery_chg_dev *chip;
+
+	if (ic_dev == NULL) {
+		chg_err("oplus_chg_ic_dev is NULL");
+		return -ENODEV;
+	}
+	chip = oplus_chg_ic_get_drvdata(ic_dev);
+
+	switch (index) {
+	case 0:
+		*vol_mv = fg_sm8350_get_battery_mvolts_2cell_max();
+		break;
+	case 1:
+		*vol_mv = fg_sm8350_get_battery_mvolts_2cell_min();
+		break;
+	default:
+		chg_err("Unknown index(=%d), max is 1\n", index);
+		return -EINVAL;
+	}
+
 	return 0;
 }
 
@@ -6030,146 +5802,6 @@ oplus_sm8350_get_device_type_for_vooc(struct oplus_chg_ic_dev *ic_dev,
 	return 0;
 }
 
-static int
-oplus_sm8350_get_battery_dod0(struct oplus_chg_ic_dev *ic_dev, int index,
-				       int *val)
-{
-	struct battery_chg_dev *bcdev;
-
-	if ((ic_dev == NULL) || (val == NULL)) {
-		chg_err("!!!ic_dev null\n");
-		return -ENODEV;
-	}
-
-	bcdev = oplus_chg_ic_get_drvdata(ic_dev);
-
-	switch (index) {
-	case 1:
-		*val = bcdev->bcc_read_buffer_dump.data_buffer[0];
-		break;
-	case 2:
-		*val = bcdev->bcc_read_buffer_dump.data_buffer[1];
-		break;
-	default:
-		chg_err("Unknown index(=%d), max is 2\n", index);
-		return -EINVAL;
-	}
-
-	return 0;
-}
-
-static int
-oplus_sm8350_get_battery_dod0_passed_q(struct oplus_chg_ic_dev *ic_dev,
-				       int *val)
-{
-	struct battery_chg_dev *bcdev;
-
-	if ((ic_dev == NULL) || (val == NULL)) {
-		chg_err("!!!ic_dev null\n");
-		return -ENODEV;
-	}
-
-	bcdev = oplus_chg_ic_get_drvdata(ic_dev);
-	*val = bcdev->bcc_read_buffer_dump.data_buffer[2];
-
-	return 0;
-}
-
-static int
-oplus_sm8350_get_battery_qmax(struct oplus_chg_ic_dev *ic_dev, int index,
-				       int *val)
-{
-	struct battery_chg_dev *bcdev;
-
-	if ((ic_dev == NULL) || (val == NULL)) {
-		chg_err("!!!ic_dev null\n");
-		return -ENODEV;
-	}
-
-	bcdev = oplus_chg_ic_get_drvdata(ic_dev);
-
-	switch (index) {
-	case 1:
-		*val = bcdev->bcc_read_buffer_dump.data_buffer[3];
-		break;
-	case 2:
-		*val = bcdev->bcc_read_buffer_dump.data_buffer[4];
-		break;
-	default:
-		chg_err("Unknown index(=%d), max is 2\n", index);
-		return -EINVAL;
-	}
-
-	return 0;
-}
-
-static int
-oplus_sm8350_get_battery_qmax_passed_q(struct oplus_chg_ic_dev *ic_dev,
-				       int *val)
-{
-	struct battery_chg_dev *bcdev;
-
-	if ((ic_dev == NULL) || (val == NULL)) {
-		chg_err("!!!ic_dev null\n");
-		return -ENODEV;
-	}
-
-	bcdev = oplus_chg_ic_get_drvdata(ic_dev);
-	*val = bcdev->bcc_read_buffer_dump.data_buffer[5];
-
-	return 0;
-}
-
-static int
-oplus_sm8350_get_batt_vol(struct oplus_chg_ic_dev *ic_dev, int index,
-				       int *val)
-{
-	struct battery_chg_dev *bcdev;
-
-	if ((ic_dev == NULL) || (val == NULL)) {
-		chg_err("!!!ic_dev null\n");
-		return -ENODEV;
-	}
-
-	bcdev = oplus_chg_ic_get_drvdata(ic_dev);
-
-	switch (index) {
-	case 1:
-		*val = bcdev->bcc_read_buffer_dump.data_buffer[6];
-		break;
-	case 2:
-		*val = bcdev->bcc_read_buffer_dump.data_buffer[11];
-		break;
-	default:
-		chg_err("Unknown index(=%d), max is 2\n", index);
-		return -EINVAL;
-	}
-
-	return 0;
-}
-
-static int
-oplus_sm8350_get_battery_gauge_type_for_bcc(struct oplus_chg_ic_dev *ic_dev,
-				       int *type)
-{
-	struct battery_chg_dev *bcdev;
-
-	if ((ic_dev == NULL) || (type == NULL)) {
-		chg_err("!!!ic_dev null\n");
-		return -ENODEV;
-	}
-
-	bcdev = oplus_chg_ic_get_drvdata(ic_dev);
-
-	if (bcdev->bcc_read_buffer_dump.data_buffer[11] == SW_GAUGE) {
-		*type = DEVICE_ZY0603;
-	} else {
-		*type = DEVICE_BQ27541;
-	}
-
-	return 0;
-}
-
 static void *oplus_chg_8350_gauge_get_func(struct oplus_chg_ic_dev *ic_dev,
 					   enum oplus_chg_ic_func func_id)
 {
@@ -6290,34 +5922,6 @@ static void *oplus_chg_8350_gauge_get_func(struct oplus_chg_ic_dev *ic_dev,
 		func = OPLUS_CHG_IC_FUNC_CHECK(
 			OPLUS_IC_FUNC_GAUGE_GET_DEVICE_TYPE_FOR_VOOC,
 			oplus_sm8350_get_device_type_for_vooc);
-		break;
-	case OPLUS_IC_FUNC_GAUGE_GET_BCC_PARMS:
-		func = OPLUS_CHG_IC_FUNC_CHECK(OPLUS_IC_FUNC_GAUGE_GET_BCC_PARMS,
-			oplus_get_bcc_parameters_from_adsp);
-		break;
-	case OPLUS_IC_FUNC_GAUGE_SET_BCC_PARMS:
-		func = OPLUS_CHG_IC_FUNC_CHECK(OPLUS_IC_FUNC_GAUGE_SET_BCC_PARMS,
-			oplus_set_bcc_debug_parameters);
-		break;
-	case OPLUS_IC_FUNC_GAUGE_GET_DOD0:
-		func = OPLUS_CHG_IC_FUNC_CHECK(OPLUS_IC_FUNC_GAUGE_GET_DOD0,
-			oplus_sm8350_get_battery_dod0);
-		break;
-	case OPLUS_IC_FUNC_GAUGE_GET_DOD0_PASSED_Q:
-		func = OPLUS_CHG_IC_FUNC_CHECK(OPLUS_IC_FUNC_GAUGE_GET_DOD0_PASSED_Q,
-			oplus_sm8350_get_battery_dod0_passed_q);
-		break;
-	case OPLUS_IC_FUNC_GAUGE_GET_QMAX:
-		func = OPLUS_CHG_IC_FUNC_CHECK(OPLUS_IC_FUNC_GAUGE_GET_QMAX,
-			oplus_sm8350_get_battery_qmax);
-		break;
-	case OPLUS_IC_FUNC_GAUGE_GET_QMAX_PASSED_Q:
-		func = OPLUS_CHG_IC_FUNC_CHECK(OPLUS_IC_FUNC_GAUGE_GET_QMAX_PASSED_Q,
-			oplus_sm8350_get_battery_qmax_passed_q);
-		break;
-	case OPLUS_IC_FUNC_GAUGE_GET_DEVICE_TYPE_FOR_BCC:
-		func = OPLUS_CHG_IC_FUNC_CHECK(OPLUS_IC_FUNC_GAUGE_GET_DEVICE_TYPE_FOR_BCC,
-			oplus_sm8350_get_battery_gauge_type_for_bcc);
 		break;
 	case OPLUS_IC_FUNC_GAUGE_UPDATE:
 		func = OPLUS_CHG_IC_FUNC_CHECK(OPLUS_IC_FUNC_GAUGE_UPDATE,
@@ -6465,8 +6069,6 @@ static int battery_chg_probe(struct platform_device *pdev)
 	mutex_init(&bcdev->oplus_custom_gpio.pinctrl_mutex);
 	mutex_init(&bcdev->read_buffer_lock);
 	init_completion(&bcdev->oem_read_ack);
-	mutex_init(&bcdev->bcc_read_buffer_lock);
-	init_completion(&bcdev->bcc_read_ack);
 #endif
 	init_completion(&bcdev->ack);
 	init_completion(&bcdev->fw_buf_ack);

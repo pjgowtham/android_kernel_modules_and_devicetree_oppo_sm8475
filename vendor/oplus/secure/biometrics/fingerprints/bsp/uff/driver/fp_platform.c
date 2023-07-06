@@ -536,18 +536,6 @@ int fp_hw_reset(struct fp_dev *fp_dev, unsigned int delay_ms) {
     mdelay(delay_ms);
     return 0;
 }
-
-int fp_reset_gpio_ctl(struct fp_dev *fp_dev, uint32_t value)
-{
-    if (fp_dev == NULL) {
-        pr_info("Input buff is NULL.\n");
-        return -1;
-    }
-    // gpio_direction_output(fp_dev->reset_gpio, 1);
-    gpio_set_value(fp_dev->reset_gpio, value);
-    return 0;
-}
-
 int fp_power_reset(struct fp_dev *fp_dev) {
     if (fp_dev == NULL) {
         pr_info("Input buff is NULL.\n");
@@ -557,7 +545,6 @@ int fp_power_reset(struct fp_dev *fp_dev) {
     fp_power_off(fp_dev);
     mdelay(50);
     fp_power_on(fp_dev);
-    mdelay(10);
     gpio_set_value(fp_dev->reset_gpio, 1);
     mdelay(3);
     return 0;

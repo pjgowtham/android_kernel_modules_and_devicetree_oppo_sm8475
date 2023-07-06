@@ -36,6 +36,7 @@
 #include <net/ip.h>
 #include <net/ipv6.h>
 #include <net/tcp.h>
+
 #define LOG_TAG "OPLUS_FEATURE_QR_SCAN"
 #define _FAMILY_VERSION  1
 #define OPLUS_QR_FAMILY_NAME "qr_scan"
@@ -45,17 +46,16 @@
 #define NLA_DATA(na)		((char *)((char*)(na) + NLA_HDRLEN))
 #define GENL_ID_GENERATE	0
 #define QR_SCAN_MSG_MAX (__QR_SCAN_MSG_MAX - 1)
-#define KEY_MESSAGE_LENGTH 5
-#define KEY_SYN_LENGTH 3
 
 enum {
 	QR_SCAN_MSG_UNDEFINE,
 	QR_SET_ANDROID_PID,
 	QR_SCAN_SET_PARAM,
-	QR_SCAN_ORDER_DETECTED,
-	QR_SCAN_ORDER_POST_SUCCESS,
-	QR_SCAN_PAY_DETECTED,
-	QR_SCAN_PAY_POST_SUCCESS,
+	QR_SCAN_DETECTED,
+	QR_SCAN_NO_CONTENT,
+	QR_SCAN_NO_FOUND,
+	QR_SCAN_POST_SUCCESS,
+	QR_SCAN_BAD_GATEWAY,
 	__QR_SCAN_MSG_MAX,
 };
 
@@ -74,26 +74,15 @@ struct qr_ipv6_package_info {
 	struct in6_addr ipv6_daddr;
 };
 
-static spinlock_t s_syn_v4_package_info_record_lock;
-static spinlock_t s_key_v4_package_info_record_lock;
-static spinlock_t s_syn_v6_package_info_record_lock;
-static spinlock_t s_key_v6_package_info_record_lock;
 /*AP pass qr uid*/
-static u32 s_package_uid = 0;
+static u32 qr_uid = 0;
 /*qr package info,such as port and address*/
-static struct qr_ipv4_package_info s_qr_ipv4_infos;
-static struct qr_ipv6_package_info s_qr_ipv6_infos;
-static struct qr_ipv4_package_info s_qr_ipv4_syn_infos[KEY_SYN_LENGTH];
-static struct qr_ipv6_package_info s_qr_ipv6_syn_infos[KEY_SYN_LENGTH];
+static struct qr_ipv4_package_info qr_ipv4_infos;
+static struct qr_ipv6_package_info qr_ipv6_infos;
 /*AP control if need to check tcp*/
-static bool s_ap_control_need_check = false;
+static bool ap_control_need_check = false;
 /*portid of android netlink socket*/
-static u32 s_oplus_qr_netlink_pid;
-/*the order special keymessage*/
-static char s_client_hello_key_byte[] = {0x01};
-static char s_hand_shake_key_byte[] = {0x16};
-static char s_service_hello_key_byte[] = {0x02};
-
+static u32 oplus_qr_netlink_pid;
 
 enum {
 	NETLINK_OPLUS_QR_CMD_UNSPEC,
@@ -153,13 +142,14 @@ static int oplus_qr_hooks_send_to_user(int msg_type, char *payload, int payload_
 	struct sk_buff *skbuff;
 	size_t size;
 
-	if (!s_oplus_qr_netlink_pid) {
+	if (!oplus_qr_netlink_pid) {
+		printk("oplus_qr_monitor: qr_monitor_netlink_send_to_user, can not unicast skbuff, oplus_qr_netlink_pid=0\n");
 		return -1;
 	}
 
 	/*allocate new buffer cache */
 	size = nla_total_size(payload_len);
-	ret = qr_genl_msg_prepare_usr_msg(NETLINK_OPLUS_QR_HOOKS, size, s_oplus_qr_netlink_pid, &skbuff);
+	ret = qr_genl_msg_prepare_usr_msg(NETLINK_OPLUS_QR_HOOKS, size, oplus_qr_netlink_pid, &skbuff);
 	if (ret) {
 		return ret;
 	}
@@ -174,8 +164,9 @@ static int oplus_qr_hooks_send_to_user(int msg_type, char *payload, int payload_
 	genlmsg_end(skbuff, head);
 
 	/* send data */
-	ret = genlmsg_unicast(&init_net, skbuff, s_oplus_qr_netlink_pid);
+	ret = genlmsg_unicast(&init_net, skbuff, oplus_qr_netlink_pid);
 	if (ret < 0) {
+		printk(KERN_ERR "oplus_qr_monitor: qr_monitor_netlink_send_to_user, can not unicast skbuff, ret = %d,android_pid pid=%d\n", ret, oplus_qr_netlink_pid);
 		return -1;
 	}
 
@@ -192,7 +183,7 @@ static bool oplus_match_qr_uid_skb(struct sock *sk)
 #endif
 
 	if (NULL == sk || !sk_fullsock(sk) || NULL == sk->sk_socket) {
-		return false;
+	return false;
 	}
 #if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 9, 0))
 	filp = sk->sk_socket->file;
@@ -203,7 +194,7 @@ static bool oplus_match_qr_uid_skb(struct sock *sk)
 #else
 	sk_uid = sk->sk_uid;
 #endif
-	check_uid = make_kuid(&init_user_ns, s_package_uid);
+	check_uid = make_kuid(&init_user_ns, qr_uid);
 	if (uid_eq(sk_uid, check_uid)) {
 		return true;
 	}
@@ -214,161 +205,60 @@ static bool oplus_match_qr_uid_skb(struct sock *sk)
 /*to record qr tcp info*/
 static void oplus_record_qr_ipv4_skb_info(int source, int dst, int saddr, int daddr)
 {
-	spin_lock_bh(&s_key_v4_package_info_record_lock);
-	if ((s_qr_ipv4_infos.ipv4_source) || (s_qr_ipv4_infos.ipv4_dst) || (s_qr_ipv4_infos.ipv4_saddr) || (s_qr_ipv4_infos.ipv4_daddr)) {
-		spin_unlock_bh(&s_key_v4_package_info_record_lock);
+	if ((qr_ipv4_infos.ipv4_source) || (qr_ipv4_infos.ipv4_dst) || (qr_ipv4_infos.ipv4_saddr) || (qr_ipv4_infos.ipv4_daddr)) {
 		return;
 	}
-	s_qr_ipv4_infos.ipv4_source = source;
-	s_qr_ipv4_infos.ipv4_dst = dst;
-	s_qr_ipv4_infos.ipv4_saddr = saddr;
-	s_qr_ipv4_infos.ipv4_daddr = daddr;
-	spin_unlock_bh(&s_key_v4_package_info_record_lock);
+
+	qr_ipv4_infos.ipv4_source = source;
+	qr_ipv4_infos.ipv4_dst = dst;
+	qr_ipv4_infos.ipv4_saddr = saddr;
+	qr_ipv4_infos.ipv4_daddr = daddr;
 }
 
 static void oplus_record_qr_ipv6_skb_info(int source, int dst, struct in6_addr saddr, struct in6_addr daddr)
 {
-	spin_lock_bh(&s_key_v6_package_info_record_lock);
-	if ((s_qr_ipv6_infos.ipv6_source) || (s_qr_ipv6_infos.ipv6_dst)) {
-		spin_unlock_bh(&s_key_v6_package_info_record_lock);
+	if ((qr_ipv6_infos.ipv6_source) || (qr_ipv6_infos.ipv6_dst)) {
 		return;
 	}
 
-	if ((!ipv6_addr_any(&(s_qr_ipv6_infos.ipv6_saddr))) && (!ipv6_addr_any(&(s_qr_ipv6_infos.ipv6_daddr)))) {
-		spin_unlock_bh(&s_key_v6_package_info_record_lock);
+	if ((!ipv6_addr_any(&(qr_ipv6_infos.ipv6_saddr))) && (!ipv6_addr_any(&(qr_ipv6_infos.ipv6_daddr)))) {
 		return;
 	}
-	s_qr_ipv6_infos.ipv6_source = source;
-	s_qr_ipv6_infos.ipv6_dst = dst;
-	s_qr_ipv6_infos.ipv6_saddr = saddr;
-	s_qr_ipv6_infos.ipv6_daddr = daddr;
-	spin_unlock_bh(&s_key_v6_package_info_record_lock);
+
+	qr_ipv6_infos.ipv6_source = source;
+	qr_ipv6_infos.ipv6_dst = dst;
+	qr_ipv6_infos.ipv6_saddr = saddr;
+	qr_ipv6_infos.ipv6_daddr = daddr;
 }
 
 /*to check qr tcp info*/
 static bool oplus_check_qr_ipv4_skb_info(int source, int dst, int saddr, int daddr)
 {
-	spin_lock_bh(&s_key_v4_package_info_record_lock);
-	if ((!s_qr_ipv4_infos.ipv4_source) || (!s_qr_ipv4_infos.ipv4_dst) || (!s_qr_ipv4_infos.ipv4_saddr) || (!s_qr_ipv4_infos.ipv4_daddr)) {
-		spin_unlock_bh(&s_key_v4_package_info_record_lock);
+	if ((!qr_ipv4_infos.ipv4_source) || (!qr_ipv4_infos.ipv4_dst) || (!qr_ipv4_infos.ipv4_saddr) || (!qr_ipv4_infos.ipv4_daddr)) {
 		return false;
 	}
-
-	if ((source == s_qr_ipv4_infos.ipv4_source) && (dst == s_qr_ipv4_infos.ipv4_dst)
-		&& (saddr = s_qr_ipv4_infos.ipv4_saddr) && (daddr = s_qr_ipv4_infos.ipv4_daddr)) {
-		spin_unlock_bh(&s_key_v4_package_info_record_lock);
+	if ((source == qr_ipv4_infos.ipv4_source) && (dst == qr_ipv4_infos.ipv4_dst) && (saddr = qr_ipv4_infos.ipv4_saddr) && (daddr = qr_ipv4_infos.ipv4_daddr)) {
 		return true;
 	}
-	spin_unlock_bh(&s_key_v4_package_info_record_lock);
+
 	return false;
 }
 
 static bool oplus_check_qr_ipv6_skb_info(int source, int dst, struct in6_addr saddr, struct in6_addr daddr)
 {
-	spin_lock_bh(&s_key_v6_package_info_record_lock);
-	if ((!s_qr_ipv6_infos.ipv6_source) || (!s_qr_ipv6_infos.ipv6_dst)) {
-		spin_unlock_bh(&s_key_v6_package_info_record_lock);
+	if ((!qr_ipv6_infos.ipv6_source) || (!qr_ipv6_infos.ipv6_dst)) {
 		return false;
 	}
 
-	if ((ipv6_addr_any(&(s_qr_ipv6_infos.ipv6_saddr))) || (ipv6_addr_any(&(s_qr_ipv6_infos.ipv6_daddr)))) {
-		spin_unlock_bh(&s_key_v6_package_info_record_lock);
+	if ((ipv6_addr_any(&(qr_ipv6_infos.ipv6_saddr))) || (ipv6_addr_any(&(qr_ipv6_infos.ipv6_daddr)))) {
 		return false;
 	}
 
-	if ((source == s_qr_ipv6_infos.ipv6_source) && (dst == s_qr_ipv6_infos.ipv6_dst)
-		&& (ipv6_addr_equal(&(s_qr_ipv6_infos.ipv6_saddr), &saddr)) && (ipv6_addr_equal(&(s_qr_ipv6_infos.ipv6_daddr), &daddr))) {
-		spin_unlock_bh(&s_key_v6_package_info_record_lock);
+	if ((source == qr_ipv6_infos.ipv6_source) && (dst == qr_ipv6_infos.ipv6_dst)
+		&& (ipv6_addr_equal(&(qr_ipv6_infos.ipv6_saddr), &saddr)) && (ipv6_addr_equal(&(qr_ipv6_infos.ipv6_daddr), &daddr))) {
 		return true;
 	}
-	spin_unlock_bh(&s_key_v6_package_info_record_lock);
-	return false;
-}
 
-static void oplus_record_qr_ipv4_syn_skb_info(int source, int dst, int saddr, int daddr)
-{
-	int i = 0;
-	spin_lock_bh(&s_syn_v4_package_info_record_lock);
-	if ((s_qr_ipv4_syn_infos[0].ipv4_source) && (s_qr_ipv4_syn_infos[1].ipv4_source)
-		&& (s_qr_ipv4_syn_infos[2].ipv4_source)) {
-		spin_unlock_bh(&s_syn_v4_package_info_record_lock);
-		return;
-	}
-	for (i = 0; i < KEY_SYN_LENGTH; i++) {
-		if (!s_qr_ipv4_syn_infos[i].ipv4_source) {
-			s_qr_ipv4_syn_infos[i].ipv4_source = source;
-			s_qr_ipv4_syn_infos[i].ipv4_dst = dst;
-			s_qr_ipv4_syn_infos[i].ipv4_saddr = saddr;
-			s_qr_ipv4_syn_infos[i].ipv4_daddr = daddr;
-			printk("record v4 syn info");
-			break;
-		}
-	}
-	spin_unlock_bh(&s_syn_v4_package_info_record_lock);
-}
-
-static void oplus_record_qr_ipv6_syn_skb_info(int source, int dst, struct in6_addr saddr, struct in6_addr daddr)
-{
-	int i = 0;
-	spin_lock_bh(&s_syn_v6_package_info_record_lock);
-	if ((s_qr_ipv6_syn_infos[0].ipv6_source) && (s_qr_ipv6_syn_infos[1].ipv6_source) && (s_qr_ipv6_syn_infos[2].ipv6_source)) {
-		spin_unlock_bh(&s_syn_v6_package_info_record_lock);
-		return;
-	}
-	for (i = 0; i < KEY_SYN_LENGTH; i++) {
-		if (!s_qr_ipv6_syn_infos[i].ipv6_source) {
-			s_qr_ipv6_syn_infos[i].ipv6_source = source;
-			s_qr_ipv6_syn_infos[i].ipv6_dst = dst;
-			s_qr_ipv6_syn_infos[i].ipv6_saddr = saddr;
-			s_qr_ipv6_syn_infos[i].ipv6_daddr = daddr;
-			printk("record v6 syn info");
-			break;
-		}
-	}
-	spin_unlock_bh(&s_syn_v6_package_info_record_lock);
-}
-
-static bool oplus_check_qr_ipv4_syn_skb_info(int source, int dst, int saddr, int daddr)
-{
-	int i = 0;
-	spin_lock_bh(&s_syn_v4_package_info_record_lock);
-	if ((!s_qr_ipv4_syn_infos[0].ipv4_source) && (!s_qr_ipv4_syn_infos[1].ipv4_source)
-		&& (!s_qr_ipv4_syn_infos[2].ipv4_source)) {
-		spin_unlock_bh(&s_syn_v4_package_info_record_lock);
-		return false;
-	}
-
-	for (i = 0; i < KEY_SYN_LENGTH; i++) {
-		if ((source == s_qr_ipv4_syn_infos[i].ipv4_source) && (dst == s_qr_ipv4_syn_infos[i].ipv4_dst)
-			&& (saddr = s_qr_ipv4_syn_infos[i].ipv4_saddr) && (daddr = s_qr_ipv4_syn_infos[i].ipv4_daddr)) {
-			printk("v4 syn match");
-			spin_unlock_bh(&s_syn_v4_package_info_record_lock);
-			return true;
-		}
-	}
-	spin_unlock_bh(&s_syn_v4_package_info_record_lock);
-	return false;
-}
-
-static bool oplus_check_qr_ipv6_syn_skb_info(int source, int dst, struct in6_addr saddr, struct in6_addr daddr)
-{
-	int i = 0;
-	spin_lock_bh(&s_syn_v6_package_info_record_lock);
-	if ((!s_qr_ipv6_syn_infos[0].ipv6_source) && (!s_qr_ipv6_syn_infos[1].ipv6_source) && (!s_qr_ipv6_syn_infos[2].ipv6_source)) {
-		spin_unlock_bh(&s_syn_v6_package_info_record_lock);
-		return false;
-	}
-
-	for (i = 0; i < KEY_SYN_LENGTH; i++) {
-		if ((source == s_qr_ipv6_syn_infos[i].ipv6_source) && (dst == s_qr_ipv6_syn_infos[i].ipv6_dst)
-			&& (ipv6_addr_equal(&(s_qr_ipv6_syn_infos[i].ipv6_saddr), &saddr))
-			&& (ipv6_addr_equal(&(s_qr_ipv6_syn_infos[i].ipv6_daddr), &daddr))) {
-			printk("v6 syn match");
-			spin_unlock_bh(&s_syn_v6_package_info_record_lock);
-			return true;
-		}
-	}
-	spin_unlock_bh(&s_syn_v6_package_info_record_lock);
 	return false;
 }
 
@@ -380,70 +270,51 @@ static unsigned int oplus_filter_qr_v4_send_skb(void *p, struct sk_buff *skb, co
 	u32 header_len;
 	char *userdata = NULL;
 	u16 tot_len;
-	int check_length = 0;
+	int length = 0;
 	int ipv4_qr_source = 0;
 	int ipv4_qr_dst = 0;
 	int ipv4_qr_saddr = 0;
 	int ipv4_qr_daddr = 0;
-	char *ipv4_send_buffer = NULL;
+
 	struct sock *sk = skb_to_full_sk(skb);
 
 	if (sk == NULL) {
 		return NF_ACCEPT;
 	}
-	iph = ip_hdr(skb);
+
 	/*confirm qr doing scan now and this skb is the qr uid*/
-	if ((!oplus_match_qr_uid_skb(sk)) || (!s_ap_control_need_check) || (iph == NULL)) {
+	if ((!oplus_match_qr_uid_skb(sk)) || (!ap_control_need_check)) {
 		return NF_ACCEPT;
 	}
 
 	/*get the skb userdata*/
-	if (iph->protocol != IPPROTO_TCP) {
-		return NF_ACCEPT;
-	} else {
+	if ((iph = ip_hdr(skb)) != NULL && iph->protocol == IPPROTO_TCP) {
 		tot_len = ntohs(iph->tot_len);
+
+		if (unlikely(skb_linearize(skb))) {
+			return NF_ACCEPT;
+		}
+		iph = ip_hdr(skb);
 		tcph = tcp_hdr(skb);
+		header_len = iph->ihl * 4 + tcph->doff * 4;
+		userdata = (char *)(skb->data + header_len);
+		length = skb->len-iph->ihl*4-tcph->doff*4;
 		ipv4_qr_source = ntohs(tcph->source);
 		ipv4_qr_dst = ntohs(tcph->dest);
 		ipv4_qr_saddr = ntohs(iph->saddr);
 		ipv4_qr_daddr = ntohs(iph->daddr);
-		header_len = iph->ihl * 4 + tcph->doff * 4;
-		check_length = skb->len-header_len;
-		if (tcph->syn) {
-			oplus_record_qr_ipv4_syn_skb_info(ipv4_qr_source, ipv4_qr_dst, ipv4_qr_saddr, ipv4_qr_daddr);
-			return NF_ACCEPT;
-		}
-		if (check_length < KEY_MESSAGE_LENGTH) {
-			return NF_ACCEPT;
-		}
 	}
 
-	ipv4_send_buffer = kvmalloc(skb->len, GFP_ATOMIC);
-	if (!ipv4_send_buffer) {
-		return NF_ACCEPT;
-	} else {
-		memset(ipv4_send_buffer, '\0', skb->len);
-	}
-
-	userdata = (char *)skb_header_pointer(skb, header_len, check_length, ipv4_send_buffer);
 	if (userdata == NULL) {
-		kfree(ipv4_send_buffer);
 		return NF_ACCEPT;
-	} else if ((memcmp(userdata + KEY_MESSAGE_LENGTH, s_client_hello_key_byte, sizeof(s_client_hello_key_byte)) == 0)
-		&& (memcmp(userdata, s_hand_shake_key_byte, sizeof(s_hand_shake_key_byte)) == 0)
-		&& (oplus_check_qr_ipv4_syn_skb_info(ipv4_qr_source, ipv4_qr_dst, ipv4_qr_saddr, ipv4_qr_daddr))) {
-		printk("qr order post success");
-		oplus_record_qr_ipv4_skb_info(ipv4_qr_source, ipv4_qr_dst, ipv4_qr_saddr, ipv4_qr_daddr);
-		oplus_qr_hooks_send_to_user(QR_SCAN_ORDER_POST_SUCCESS, NULL, 0);
-		kfree(ipv4_send_buffer);
-		return NF_ACCEPT;
-	} else if (strstr(userdata, "pay") != NULL) {
-		printk("qr pay post success");
-		oplus_record_qr_ipv4_skb_info(ipv4_qr_source, ipv4_qr_dst, ipv4_qr_saddr, ipv4_qr_daddr);
-		oplus_qr_hooks_send_to_user(QR_SCAN_PAY_POST_SUCCESS, NULL, 0);
 	}
 
-	kfree(ipv4_send_buffer);
+	/*qr has send tcpv4 scan package*/
+	if (strstr(userdata, "POST /mmtls/") != NULL) {
+		oplus_record_qr_ipv4_skb_info(ipv4_qr_source, ipv4_qr_dst, ipv4_qr_saddr, ipv4_qr_daddr);
+		oplus_qr_hooks_send_to_user(QR_SCAN_POST_SUCCESS, NULL, 0);
+	}
+
 	return NF_ACCEPT;
 }
 
@@ -455,63 +326,68 @@ static unsigned int oplus_filter_qr_v4_receive_skb(void *p, struct sk_buff *skb,
 	u32 header_len;
 	char *userdata = NULL;
 	u16 tot_len;
-	int check_length = 0;
+	int length = 0;
 	int ipv4_qr_source = 0;
 	int ipv4_qr_dst = 0;
 	int ipv4_qr_saddr = 0;
 	int ipv4_qr_daddr = 0;
 	struct sock *sk = skb_to_full_sk(skb);
-	char *ipv4_receive_buffer = NULL;
 	if (sk == NULL) {
 		return NF_ACCEPT;
 	}
-	iph = ip_hdr(skb);
-	if ((!oplus_match_qr_uid_skb(sk)) || (!s_ap_control_need_check) || (iph == NULL)) {
+
+	if ((!oplus_match_qr_uid_skb(sk)) || (!ap_control_need_check)) {
 		return NF_ACCEPT;
 	}
 
-	if (iph->protocol != IPPROTO_TCP) {
-		return NF_ACCEPT;
-	} else {
+	if ((iph = ip_hdr(skb)) != NULL && iph->protocol == IPPROTO_TCP) {
 		tot_len = ntohs(iph->tot_len);
-		tcph = tcp_hdr(skb);
-		header_len = iph->ihl * 4 + tcph->doff * 4;
-		check_length = skb->len-header_len;
-		if (check_length < KEY_MESSAGE_LENGTH) {
+
+		if (unlikely(skb_linearize(skb))) {
 			return NF_ACCEPT;
 		}
+		iph = ip_hdr(skb);
+		tcph = tcp_hdr(skb);
+		header_len = iph->ihl * 4 + tcph->doff * 4;
+		userdata = (char *)(skb->data + header_len);
+		length = skb->len-iph->ihl*4-tcph->doff*4;
 		ipv4_qr_source = ntohs(tcph->source);
 		ipv4_qr_dst = ntohs(tcph->dest);
 		ipv4_qr_saddr = ntohs(iph->saddr);
 		ipv4_qr_daddr = ntohs(iph->daddr);
-		if (!oplus_check_qr_ipv4_skb_info(ipv4_qr_dst, ipv4_qr_source, ipv4_qr_daddr, ipv4_qr_saddr)) {
-			return NF_ACCEPT;
-		}
 	}
 
-	ipv4_receive_buffer = kvmalloc(skb->len, GFP_ATOMIC);
-	if (!ipv4_receive_buffer) {
-		return NF_ACCEPT;
-	} else {
-		memset(ipv4_receive_buffer, '\0', skb->len);
-	}
-
-	userdata = (char *)skb_header_pointer(skb, header_len, check_length, ipv4_receive_buffer);
 	if (userdata == NULL) {
-		kfree(ipv4_receive_buffer);
 		return NF_ACCEPT;
-	} else if ((memcmp(userdata + KEY_MESSAGE_LENGTH, s_service_hello_key_byte, sizeof(s_service_hello_key_byte)) == 0)
-		&& (memcmp(userdata, s_hand_shake_key_byte, sizeof(s_hand_shake_key_byte)) == 0)) {
-		printk("qr order detect");
-		oplus_qr_hooks_send_to_user(QR_SCAN_ORDER_DETECTED, NULL, 0);
-		kfree(ipv4_receive_buffer);
-		return NF_ACCEPT;
-	} else if (strstr(userdata, "200 OK")!= NULL) {
-		printk("qr pay detect");
-		oplus_qr_hooks_send_to_user(QR_SCAN_PAY_DETECTED, NULL, 0);
 	}
 
-	kfree(ipv4_receive_buffer);
+	if (strstr(userdata, "204 No Content") != NULL) {
+		oplus_qr_hooks_send_to_user(QR_SCAN_NO_CONTENT, NULL, 0);
+		printk("qr 204 No Content");
+		return NF_ACCEPT;
+	}
+
+	if (strstr(userdata, "Bad Gateway") != NULL) {
+		oplus_qr_hooks_send_to_user(QR_SCAN_BAD_GATEWAY, NULL, 0);
+		printk("qr Bad Gateway");
+		return NF_ACCEPT;
+	}
+
+	if (strstr(userdata, "Not Found") != NULL) {
+		oplus_qr_hooks_send_to_user(QR_SCAN_NO_FOUND, NULL, 0);
+		printk("qr Not Found");
+		return NF_ACCEPT;
+	}
+
+	if (!oplus_check_qr_ipv4_skb_info(ipv4_qr_dst, ipv4_qr_source, ipv4_qr_daddr, ipv4_qr_saddr)) {
+		return NF_ACCEPT;
+	}
+
+	/*qr has received tcpv4 scan success package*/
+	if (strstr(userdata, "200 OK")!= NULL) {
+		oplus_qr_hooks_send_to_user(QR_SCAN_DETECTED, NULL, 0);
+	}
+
 	return NF_ACCEPT;
 }
 
@@ -520,72 +396,52 @@ static unsigned int oplus_filter_qr_v6_send_skb(void *p, struct sk_buff *skb, co
 {
 	struct ipv6hdr *ipv6h = NULL;
 	struct tcphdr *tcph = NULL;
+
 	u32 header_len;
 	__be16 fo = 0;
 	u8 ip_proto;
 	int ihl = 0;
-	int check_length = 0;
 	char *userdata = NULL;
-	char *ipv6_send_buffer = NULL;
+	u16 tot_len;
 	int ipv6_qr_source = 0;
 	int ipv6_qr_dst = 0;
 	struct sock *sk = skb_to_full_sk(skb);
-
 	if (sk == NULL) {
 		return NF_ACCEPT;
 	}
-	ipv6h = ipv6_hdr(skb);
-	if ((!oplus_match_qr_uid_skb(sk)) || (!s_ap_control_need_check) || (ipv6h == NULL)) {
+	if ((!oplus_match_qr_uid_skb(sk)) || (!ap_control_need_check)) {
 		return NF_ACCEPT;
 	}
 
-	if ((skb->protocol != htons(ETH_P_IPV6)) || (ipv6h->nexthdr != NEXTHDR_TCP)) {
-		return NF_ACCEPT;
-	} else {
+	if (skb->protocol == htons(ETH_P_IPV6) && (ipv6h = ipv6_hdr(skb)) != NULL
+		&& ipv6h->nexthdr == NEXTHDR_TCP) {
+		tot_len = ntohs(ipv6h->payload_len);
 		ip_proto = ipv6h->nexthdr;
+		if (unlikely(skb_linearize(skb))) {
+			return NF_ACCEPT;
+		}
 		ihl = ipv6_skip_exthdr(skb, sizeof(struct ipv6hdr), &ip_proto, &fo); /*ipv6 header length*/
 		tcph = tcp_hdr(skb);
-		if (tcph == NULL) {
+		if (NULL == tcph) {
 			return NF_ACCEPT;
 		}
+		ipv6h = ipv6_hdr(skb);
+		header_len = ihl + tcph->doff * 4;  /*total length of ipv6 header and tcp header*/
+		userdata = (unsigned char *)(skb->data + header_len);   /*tcp payload buffer*/
 		ipv6_qr_source = ntohs(tcph->source);
 		ipv6_qr_dst = ntohs(tcph->dest);
-		if (tcph->syn) {
-			oplus_record_qr_ipv6_syn_skb_info(ipv6_qr_source, ipv6_qr_dst, ipv6h->saddr, ipv6h->daddr);
-			return NF_ACCEPT;
 		}
-		header_len = ihl + tcph->doff * 4;  /*total length of ipv6 header and tcp header*/
-		check_length = skb->len-header_len;
-		if (check_length < KEY_MESSAGE_LENGTH) {
-			return NF_ACCEPT;
-		}
-	}
 
-	ipv6_send_buffer = kvmalloc(skb->len, GFP_ATOMIC);
-	if (!ipv6_send_buffer) {
-		return NF_ACCEPT;
-	} else {
-		memset(ipv6_send_buffer, '\0', skb->len);
-	}
-
-	userdata = (char *)skb_header_pointer(skb, header_len, check_length, ipv6_send_buffer);   /*tcp payload buffer*/
 	if (userdata == NULL) {
-		kfree(ipv6_send_buffer);
 		return NF_ACCEPT;
-	} else if ((memcmp(userdata + KEY_MESSAGE_LENGTH, s_client_hello_key_byte, sizeof(s_client_hello_key_byte)) == 0)
-		&& (memcmp(userdata, s_hand_shake_key_byte, sizeof(s_hand_shake_key_byte)) == 0)
-		&& (oplus_check_qr_ipv6_syn_skb_info(ipv6_qr_source, ipv6_qr_dst, ipv6h->saddr, ipv6h->daddr))) {
-		printk("oplus_filter_qr_v6_send_skb send_key_message userdata pass");
-		oplus_record_qr_ipv6_skb_info(ipv6_qr_source, ipv6_qr_dst, ipv6h->saddr, ipv6h->daddr);
-		oplus_qr_hooks_send_to_user(QR_SCAN_ORDER_POST_SUCCESS, NULL, 0);
-		kfree(ipv6_send_buffer);
-		return NF_ACCEPT;
-	} else if (strstr(userdata, "pay") != NULL) {
-		oplus_record_qr_ipv6_skb_info(ipv6_qr_source, ipv6_qr_dst, ipv6h->saddr, ipv6h->daddr);
-		oplus_qr_hooks_send_to_user(QR_SCAN_PAY_POST_SUCCESS, NULL, 0);
 	}
 
-	kfree(ipv6_send_buffer);
+	/*QR has send tcpv6 scan package*/
+	if (strstr(userdata, "POST /mmtls/") != NULL) {
+		oplus_qr_hooks_send_to_user(QR_SCAN_POST_SUCCESS, NULL, 0);
+		oplus_record_qr_ipv6_skb_info(ipv6_qr_source, ipv6_qr_dst, ipv6h->saddr, ipv6h->daddr);
+	}
+
 	return NF_ACCEPT;
 }
 
@@ -600,60 +456,66 @@ static unsigned int oplus_filter_qr_v6_receive_skb(void *p, struct sk_buff *skb,
 	int ipv6_qr_source = 0;
 	int ipv6_qr_dst = 0;
 	char *userdata = NULL;
-	char *ipv6_receive_buffer = NULL;
-	int check_length = 0;
+	u16 tot_len;
 	struct sock *sk = skb_to_full_sk(skb);
 	if (sk == NULL) {
 		return NF_ACCEPT;
 	}
-	ipv6h = ipv6_hdr(skb);
-	if ((!oplus_match_qr_uid_skb(sk)) || (!s_ap_control_need_check) || (ipv6h == NULL)) {
+
+	if ((!oplus_match_qr_uid_skb(sk)) || (!ap_control_need_check)) {
 		return NF_ACCEPT;
 	}
 
-	if ((skb->protocol != htons(ETH_P_IPV6)) || (ipv6h->nexthdr != NEXTHDR_TCP)) {
-		return NF_ACCEPT;
-	} else {
+	if (skb->protocol == htons(ETH_P_IPV6) && (ipv6h = ipv6_hdr(skb)) != NULL
+		&& ipv6h->nexthdr == NEXTHDR_TCP) {
+		tot_len = ntohs(ipv6h->payload_len);
 		ip_proto = ipv6h->nexthdr;
+		if (unlikely(skb_linearize(skb))) {
+			return NF_ACCEPT;
+		}
 		ihl = ipv6_skip_exthdr(skb, sizeof(struct ipv6hdr), &ip_proto, &fo); /*ipv6 header length*/
 		tcph = tcp_hdr(skb);
-		if (tcph == NULL) {
+		if (NULL == tcph) {
 			return NF_ACCEPT;
 		}
+		ipv6h = ipv6_hdr(skb);
 		header_len = ihl + tcph->doff * 4;  /*total length of ipv6 header and tcp header*/
-		check_length = skb->len-header_len;
-		if (check_length < KEY_MESSAGE_LENGTH) {
-			return NF_ACCEPT;
-		}
+		userdata = (unsigned char *)(skb->data + header_len);   /*tcp payload buffer*/
 		ipv6_qr_source = ntohs(tcph->source);
 		ipv6_qr_dst = ntohs(tcph->dest);
-		if (!oplus_check_qr_ipv6_skb_info(ipv6_qr_dst, ipv6_qr_source, ipv6h->daddr, ipv6h->saddr)) {
-			return NF_ACCEPT;
 		}
-	}
 
-	ipv6_receive_buffer = kvmalloc(skb->len, GFP_ATOMIC);
-	if (!ipv6_receive_buffer) {
-		return NF_ACCEPT;
-	} else {
-		memset(ipv6_receive_buffer, '\0', skb->len);
-	}
-
-	userdata = (char *)skb_header_pointer(skb, header_len, check_length, ipv6_receive_buffer);   /*tcp payload buffer*/
 	if (userdata == NULL) {
-		kfree(ipv6_receive_buffer);
 		return NF_ACCEPT;
-	} else if ((memcmp(userdata + KEY_MESSAGE_LENGTH, s_service_hello_key_byte, sizeof(s_service_hello_key_byte)) == 0)
-		&& (memcmp(userdata, s_hand_shake_key_byte, sizeof(s_hand_shake_key_byte)) == 0)) {
-		printk("oplus_filter_qr_v6_receive_skb receive_key_message userdata pass");
-		oplus_qr_hooks_send_to_user(QR_SCAN_ORDER_DETECTED, NULL, 0);
-		kfree(ipv6_receive_buffer);
-		return NF_ACCEPT;
-	} else if (strstr(userdata, "200 OK")!= NULL) {
-		oplus_qr_hooks_send_to_user(QR_SCAN_PAY_DETECTED, NULL, 0);
 	}
 
-	kfree(ipv6_receive_buffer);
+	if (strstr(userdata, "204 No Content") != NULL) {
+		oplus_qr_hooks_send_to_user(QR_SCAN_NO_CONTENT, NULL, 0);
+		printk("qr 204 No Content");
+		return NF_ACCEPT;
+	}
+
+	if (strstr(userdata, "Bad Gateway") != NULL) {
+		oplus_qr_hooks_send_to_user(QR_SCAN_BAD_GATEWAY, NULL, 0);
+		printk("qr Bad Gateway");
+		return NF_ACCEPT;
+	}
+
+	if (strstr(userdata, "Not Found") != NULL) {
+		oplus_qr_hooks_send_to_user(QR_SCAN_NO_FOUND, NULL, 0);
+		printk("qr Not Found");
+		return NF_ACCEPT;
+	}
+
+	if (!oplus_check_qr_ipv6_skb_info(ipv6_qr_dst, ipv6_qr_source, ipv6h->daddr, ipv6h->saddr)) {
+		printk("oplus_filter_qr_v6_receive_skb info not match");
+		return NF_ACCEPT;
+	}
+
+	if(strstr(userdata, "200 OK") != NULL) {
+		oplus_qr_hooks_send_to_user(QR_SCAN_DETECTED, NULL, 0);
+	}
+
 	return NF_ACCEPT;
 }
 
@@ -690,48 +552,26 @@ static struct nf_hook_ops filter_qr_skb[] __read_mostly = {
 
 static void oplus_qr_hooks_set_qr_param(struct  nlattr *nla)
 {
-	int i = 0;
 	u32 *data = (u32 *)NLA_DATA(nla);
-	s_package_uid = data[0];
-	s_ap_control_need_check = data[1];
-	if (!s_ap_control_need_check) {
-		for (i = 0; i < KEY_SYN_LENGTH; i++) {
-			spin_lock_bh(&s_syn_v6_package_info_record_lock);
-			s_qr_ipv6_syn_infos[i].ipv6_source = 0;
-			s_qr_ipv6_syn_infos[i].ipv6_dst = 0;
-			ipv6_addr_set(&(s_qr_ipv6_syn_infos[i].ipv6_saddr), 0, 0, 0, 0);
-			ipv6_addr_set(&(s_qr_ipv6_syn_infos[i].ipv6_daddr), 0, 0, 0, 0);
-			spin_unlock_bh(&s_syn_v6_package_info_record_lock);
-
-			spin_lock_bh(&s_syn_v4_package_info_record_lock);
-			s_qr_ipv4_syn_infos[i].ipv4_daddr = 0;
-			s_qr_ipv4_syn_infos[i].ipv4_saddr = 0;
-			s_qr_ipv4_syn_infos[i].ipv4_source = 0;
-			s_qr_ipv4_syn_infos[i].ipv4_dst = 0;
-			spin_unlock_bh(&s_syn_v4_package_info_record_lock);
-		}
-
-		spin_lock_bh(&s_key_v6_package_info_record_lock);
-		s_qr_ipv6_infos.ipv6_source = 0;
-		s_qr_ipv6_infos.ipv6_dst = 0;
-		ipv6_addr_set(&(s_qr_ipv6_infos.ipv6_saddr), 0, 0, 0, 0);
-		ipv6_addr_set(&(s_qr_ipv6_infos.ipv6_daddr), 0, 0, 0, 0);
-		spin_unlock_bh(&s_key_v6_package_info_record_lock);
-
-		spin_lock_bh(&s_key_v4_package_info_record_lock);
-		s_qr_ipv4_infos.ipv4_source = 0;
-		s_qr_ipv4_infos.ipv4_dst = 0;
-		s_qr_ipv4_infos.ipv4_saddr = 0;
-		s_qr_ipv4_infos.ipv4_daddr = 0;
-		spin_unlock_bh(&s_key_v4_package_info_record_lock);
+	qr_uid = data[0];
+	ap_control_need_check = data[1];
+	if (!ap_control_need_check) {
+		qr_ipv6_infos.ipv6_source = 0;
+		qr_ipv6_infos.ipv6_dst = 0;
+		qr_ipv4_infos.ipv4_source = 0;
+		qr_ipv4_infos.ipv4_dst = 0;
+		ipv6_addr_set(&(qr_ipv6_infos.ipv6_saddr), 0, 0, 0, 0);
+		ipv6_addr_set(&(qr_ipv6_infos.ipv6_daddr), 0, 0, 0, 0);
+		qr_ipv4_infos.ipv4_saddr = 0;
+		qr_ipv4_infos.ipv4_daddr = 0;
 	}
 }
 
 static int oplus_qr_hooks_set_android_pid(struct sk_buff *skb)
 {
 	struct nlmsghdr *nlhdr = nlmsg_hdr(skb);
-	s_oplus_qr_netlink_pid = nlhdr->nlmsg_pid;
-	printk("oplus_qr_hooks_set_android_pid pid=%d\n", s_oplus_qr_netlink_pid);
+	oplus_qr_netlink_pid = nlhdr->nlmsg_pid;
+	printk("oplus_qr_hooks_set_android_pid pid=%d\n", oplus_qr_netlink_pid);
 	return 0;
 }
 

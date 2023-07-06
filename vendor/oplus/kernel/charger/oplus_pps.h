@@ -577,7 +577,6 @@ struct oplus_pps_chip {
 
 	/*pps status*/
 	int cp_mode;
-	int pre_cp_mode;
 	int pps_fastchg_batt_temp_status;
 	int pps_temp_cur_range;
 	int pps_low_curr_full_temp_status;
@@ -605,15 +604,6 @@ struct oplus_pps_chip {
 	int pps_exit_ms;
 	u8 int_column[PPS_DUMP_REG_CNT];
 	u8 reg_dump[PPS_DUMP_REG_CNT];
-
-	char chg_power_info[OPLUS_CHG_TRACK_CURX_INFO_LEN];
-	char err_reason[OPLUS_CHG_TRACK_DEVICE_ERR_NAME_LEN];
-	struct mutex track_upload_lock;
-	struct mutex track_pps_err_lock;
-	u32 debug_force_pps_err;
-	bool pps_err_uploading;
-	oplus_chg_track_trigger *pps_err_load_trigger;
-	struct delayed_work pps_err_load_trigger_work;
 };
 
 struct oplus_pps_operations {
@@ -723,6 +713,4 @@ bool oplus_pps_get_last_charging_status(void);
 int oplus_keep_connect_check(void);
 int oplus_pps_get_last_power(void);
 void oplus_pps_clear_last_charging_status(void);
-int oplus_pps_track_upload_err_info(
-	struct oplus_pps_chip *chip, int err_type, int value);
 #endif /*_OPLUS_PPS_H_*/

@@ -79,8 +79,6 @@ int adapter_ic_init(void);
 void adapter_ic_exit(void);
 int sgm7220_i2c_init(void);
 void sgm7220_i2c_exit(void);
-void sc6607_charger_exit(void);
-int sc6607_charger_init(void);
 
 #endif
 
@@ -343,23 +341,19 @@ int oplus_chg_get_battery_btb_temp_cal(void)
 		chg_err("discrete_charger not ready!\n");
 		goto done;
 	}
-	if (charger_ic__det_flag  == (1 << SC6607) && chip->chg_ops->get_cp_tsbat) {
-		temp = chip->chg_ops->get_cp_tsbat() * UNIT_TRANS_1000;
-	} else {
-		chg = &chip->pmic_spmi.smb5_chip->chg;
+	chg = &chip->pmic_spmi.smb5_chip->chg;
 
-		if (IS_ERR_OR_NULL(chg->iio.batbtb_temp_chan)) {
-			chg_err("chg->iio.batbtb_temp_chan is NULL !\n");
-			goto done;
-		}
-
-		rc = iio_read_channel_processed(chg->iio.batbtb_temp_chan, &temp);
-		if (rc < 0) {
-			chg_err("Failed reading bat btb temp over ADC rc=%d\n", rc);
-			goto done;
-		}
-
+	if (IS_ERR_OR_NULL(chg->iio.batbtb_temp_chan)) {
+		chg_err("chg->iio.batbtb_temp_chan is NULL !\n");
+		goto done;
 	}
+
+	rc = iio_read_channel_processed(chg->iio.batbtb_temp_chan, &temp);
+	if (rc < 0) {
+		chg_err("Failed reading bat btb temp over ADC rc=%d\n", rc);
+		goto done;
+	}
+
 done:
 	return temp / UNIT_TRANS_1000;
 }
@@ -375,24 +369,19 @@ int oplus_chg_get_usb_btb_temp_cal(void)
 		chg_err("discrete_charger not ready!\n");
 		goto done;
 	}
+	chg = &chip->pmic_spmi.smb5_chip->chg;
 
-	if (charger_ic__det_flag  == (1 << SC6607) && chip->chg_ops->get_cp_tsbus) {
-		temp = chip->chg_ops->get_cp_tsbus() * UNIT_TRANS_1000;
-	} else {
-		chg = &chip->pmic_spmi.smb5_chip->chg;
-
-		if (IS_ERR_OR_NULL(chg->iio.usbbtb_temp_chan)) {
-			chg_err("chg->iio.usbbtb_temp_chan is NULL !\n");
-			goto done;
-		}
-
-		rc = iio_read_channel_processed(chg->iio.usbbtb_temp_chan, &temp);
-		if (rc < 0) {
-			chg_err("Failed reading usb btb temp over ADC rc=%d\n", rc);
-			goto done;
-		}
-
+	if (IS_ERR_OR_NULL(chg->iio.usbbtb_temp_chan)) {
+		chg_err("chg->iio.usbbtb_temp_chan is NULL !\n");
+		goto done;
 	}
+
+	rc = iio_read_channel_processed(chg->iio.usbbtb_temp_chan, &temp);
+	if (rc < 0) {
+		chg_err("Failed reading usb btb temp over ADC rc=%d\n", rc);
+		goto done;
+	}
+
 done:
 	return temp / UNIT_TRANS_1000;
 }
@@ -2537,12 +2526,6 @@ int qpnp_get_prop_ibus_now(void)
 	return ibus;
 }
 
-static void oplus_check_chg_plugin(struct oplus_chg_chip *chip)
-{
-        if(chip && chip->chg_ops->check_chg_plugin)
-                chip->chg_ops->check_chg_plugin();
-}
-
 #define GET_TCPC_CNT_MAX 5
 static int discrete_charger_probe(struct platform_device *pdev)
 {
@@ -2745,7 +2728,6 @@ static int discrete_charger_probe(struct platform_device *pdev)
 		oplus_usbtemp_thread_init();
 	}
 
-	oplus_check_chg_plugin(oplus_chip);
 #if IS_BUILTIN(CONFIG_OPLUS_CHG)
 	if (qpnp_is_power_off_charging() == false) {
 		oplus_tbatt_power_off_task_init(oplus_chip);
@@ -2840,7 +2822,6 @@ static int __init discrete_charger_init(void)
 	sc8547_subsys_init();
 	sc8547_slave_subsys_init();
 	sy6974b_charger_init();
-	sc6607_charger_init();
 	sy6970_charger_init();
 	sgm41511_charger_init();
 	sgm41512_charger_init();
@@ -2865,7 +2846,6 @@ static void __exit discrete_charger_exit(void)
 	sgm7220_i2c_exit();
 	mp2650_driver_exit();
 	sy6970_charger_exit();
-	sc6607_charger_exit();
 	ra9530_driver_exit();
 	sgm41512_charger_exit();
 	sgm41511_charger_exit();

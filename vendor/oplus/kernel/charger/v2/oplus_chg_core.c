@@ -109,7 +109,7 @@ struct timespec oplus_current_kernel_time(void)
 
 bool oplus_is_ptcrb_version(void)
 {
-#ifndef CONFIG_OPLUS_CHARGER_MTK
+#ifndef CONFIG_OPLUS_CHARGER_MTK6895S
 	return (get_eng_version() == PTCRB);
 #else
 	return false;
@@ -166,7 +166,7 @@ static int __init oplus_chg_class_init(void)
 		chg_err("oplus chg module not found, please check oplus_chg_module.lds\n");
 		goto end;
 	} else {
-		chg_info("find %d oplus chg module\n", module_num);
+		chg_info("find %d oplsu chg module\n", module_num);
 	}
 	first_module = oplus_chg_find_first_module();
 	for (i = 0; i < module_num; i++) {

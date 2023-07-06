@@ -262,62 +262,6 @@ error:
 	return rc;
 }
 
-int dsi_panel_read_panel_reg_unlock(struct dsi_display_ctrl *ctrl,
-		struct dsi_panel *panel, u8 cmd, void *rbuf,  size_t len)
-{
-	int rc = 0;
-	struct dsi_cmd_desc cmdsreq;
-	struct dsi_display *display = get_main_display();
-
-	if (!panel || !ctrl || !ctrl->ctrl) {
-		return -EINVAL;
-	}
-
-	if (!dsi_ctrl_validate_host_state(ctrl->ctrl)) {
-		return 1;
-	}
-
-	if (!dsi_panel_initialized(panel)) {
-		rc = -EINVAL;
-		goto error;
-	}
-
-	memset(&cmdsreq, 0x0, sizeof(cmdsreq));
-	cmdsreq.msg.type = 0x06;
-	cmdsreq.msg.tx_buf = &cmd;
-	cmdsreq.msg.tx_len = 1;
-	cmdsreq.msg.rx_buf = rbuf;
-	cmdsreq.msg.rx_len = len;
-	cmdsreq.msg.flags |= MIPI_DSI_MSG_UNICAST_COMMAND;
-
-	cmdsreq.ctrl_flags = DSI_CTRL_CMD_READ;
-
-	/* For ovaltine rubbish panel, some register need read with LP even if hs cmd on */
-	if (!strcmp(display->panel->name, "boe rm692e5 dsc cmd mode panel")) {
-		cmdsreq.msg.flags |= MIPI_DSI_MSG_USE_LPM;
-	}
-
-	dsi_display_set_cmd_tx_ctrl_flags(display, &cmdsreq);
-	rc = dsi_ctrl_transfer_prepare(ctrl->ctrl, cmdsreq.ctrl_flags);
-	if (rc) {
-		DSI_ERR("prepare for rx cmd transfer failed rc=%d\n", rc);
-		goto error;
-	}
-
-	rc = dsi_ctrl_cmd_transfer(ctrl->ctrl, &cmdsreq);
-
-	if (rc < 0) {
-		pr_err("%s, dsi_display_read_panel_reg rx cmd transfer failed rc=%d\n",
-				__func__,
-				rc);
-	}
-
-	dsi_ctrl_transfer_unprepare(ctrl->ctrl, cmdsreq.ctrl_flags);
-
-error:
-	return rc;
-}
-
 int dsi_display_spr_mode(struct dsi_display *display, int mode)
 {
 	int rc = 0;
@@ -581,7 +525,6 @@ static ssize_t oplus_display_get_panel_serial_number(struct kobject *obj,
 	PANEL_SERIAL_INFO panel_serial_info;
 	uint64_t serial_number;
 	struct dsi_display *display = get_main_display();
-	struct dsi_display_ctrl *m_ctrl = NULL;
 	int i, j;
 	int len = 0;
 
@@ -614,25 +557,12 @@ static ssize_t oplus_display_get_panel_serial_number(struct kobject *obj,
 		printk(KERN_ERR"%s panel initialized = false\n", __func__);
 		return ret;
 	}
-
-	m_ctrl = &display->ctrl[display->cmd_master_idx];
-
 	/*
 	 * for some unknown reason, the panel_serial_info may read dummy,
 	 * retry when found panel_serial_info is abnormal.
 	 */
 	for (i = 0; i < 5; i++) {
-		if (display->panel->power_mode != SDE_MODE_DPMS_ON) {
-			printk(KERN_ERR"%s display panel in off status\n", __func__);
-			return ret;
-		}
-		if (!display->panel->panel_initialized) {
-			printk(KERN_ERR"%s panel initialized = false\n", __func__);
-			return ret;
-		}
-		if (!strcmp(display->panel->name, "tianma nt37705 dsc cmd mode panel")) {
-			printk(KERN_INFO"%s skip set_page\n", __func__);
-		} else if (!strcmp(display->panel->name, "boe rm692e5 dsc cmd mode panel")) {
+		if (!strcmp(display->panel->name, "boe rm692e5 dsc cmd mode panel")) {
 			mutex_lock(&display->display_lock);
 			mutex_lock(&display->panel->panel_lock);
 
@@ -683,9 +613,7 @@ static ssize_t oplus_display_get_panel_serial_number(struct kobject *obj,
 		}
 
 		/* read multiple regs */
-		if (!strcmp(display->panel->name, "tianma nt37705 dsc cmd mode panel")) {
-			printk(KERN_INFO"%s skip read_multiple_regs\n", __func__);
-		} else if (display->panel->oplus_ser.is_multi_reg) {
+		if (display->panel->oplus_ser.is_multi_reg) {
 			len = sizeof(display->panel->oplus_ser.serial_number_multi_regs) - 1;
 			for (j = 0; j < len; j++) {
 				ret = dsi_display_read_panel_reg(display, display->panel->oplus_ser.serial_number_multi_regs[j],
@@ -710,29 +638,6 @@ static ssize_t oplus_display_get_panel_serial_number(struct kobject *obj,
 			}
 		}
 
-
-		if (!strcmp(display->panel->name, "tianma nt37705 dsc cmd mode panel")) {
-			printk(KERN_INFO"%s set_page and read_reg\n", __func__);
-			mutex_lock(&display->display_lock);
-			mutex_lock(&display->panel->panel_lock);
-
-			/* switch page*/
-			if (display->panel->oplus_ser.is_switch_page) {
-				ret = dsi_panel_tx_cmd_set(display->panel, DSI_CMD_PANEL_INFO_SWITCH_PAGE);
-				if (ret) {
-					printk(KERN_ERR"%s Failed to set DSI_CMD_PANEL_INFO_SWITCH_PAGE !!\n", __func__);
-					mutex_unlock(&display->panel->panel_lock);
-					mutex_unlock(&display->display_lock);
-					return -1;
-				}
-			}
-
-			ret |= dsi_panel_read_panel_reg_unlock(m_ctrl, display->panel, display->panel->oplus_ser.serial_number_reg,
-				read, display->panel->oplus_ser.serial_number_conut);
-			mutex_unlock(&display->panel->panel_lock);
-			mutex_unlock(&display->display_lock);
-		}
-
 		/*  0xA1               11th        12th    13th    14th    15th
 		 *  HEX                0x32        0x0C    0x0B    0x29    0x37
 		 *  Bit           [D7:D4][D3:D0] [D5:D0] [D5:D0] [D5:D0] [D5:D0]
@@ -746,6 +651,8 @@ static ssize_t oplus_display_get_panel_serial_number(struct kobject *obj,
 			panel_serial_info.year		= (read[panel_serial_info.reg_index] & 0xF0) >> 0x4;
 			panel_serial_info.year += 1;
 		} else if ((!strcmp(display->panel->name, "tianma nt37705 dsc cmd mode panel"))
+		|| (!strcmp(display->panel->name, "senna ab575 tm nt37705 dsc cmd mode panel"))
+		|| (!strcmp(display->panel->name, "senna ab575 04id tm nt37705 dsc cmd mode panel"))
 		|| (!strcmp(display->panel->name, "senna22623 ab575 tm nt37705 dsc cmd mode panel"))) {
 			panel_serial_info.year		= (read[panel_serial_info.reg_index] & 0xF0) >> 0x4;
 			panel_serial_info.year += 10;
@@ -3072,11 +2979,8 @@ static OPLUS_ATTR(adfr_debug, S_IRUGO|S_IWUSR, oplus_adfr_get_debug, oplus_adfr_
 static OPLUS_ATTR(vsync_switch, S_IRUGO|S_IWUSR, oplus_get_vsync_switch, oplus_set_vsync_switch);
 /* dynamic te detect */
 static OPLUS_ATTR(dynamic_te, S_IRUGO|S_IWUSR, oplus_adfr_get_dynamic_te, oplus_adfr_set_dynamic_te);
-static OPLUS_ATTR(cmd_delay, S_IRUGO|S_IWUSR, oplus_display_get_cmd_delay_attr, oplus_display_set_cmd_delay_attr);
-static OPLUS_ATTR(compensation_enable, S_IRUGO|S_IWUSR, oplus_display_get_compensation_enable_attr, oplus_display_set_compensation_enable_attr);
 static OPLUS_ATTR(ntc_temp, S_IRUGO|S_IWUSR, oplus_display_get_ntc_temp_attr, oplus_display_set_ntc_temp_attr);
 static OPLUS_ATTR(shell_temp, S_IRUGO|S_IWUSR, oplus_display_get_shell_temp_attr, oplus_display_set_shell_temp_attr);
-static OPLUS_ATTR(tc_dry_run, S_IRUGO | S_IWUSR, oplus_temp_compensation_get_tc_dry_run_attr, oplus_temp_compensation_set_tc_dry_run_attr);
 #endif /* OPLUS_FEATURE_DISPLAY */
 
 static OPLUS_ATTR(backlight_smooth, S_IRUGO|S_IWUSR, oplus_backlight_smooth_get_debug,
@@ -3133,11 +3037,8 @@ static struct attribute *oplus_display_attrs[] = {
 	&oplus_attr_vsync_switch.attr,
 	/* dynamic te detect */
 	&oplus_attr_dynamic_te.attr,
-	&oplus_attr_cmd_delay.attr,
-	&oplus_attr_compensation_enable.attr,
 	&oplus_attr_ntc_temp.attr,
 	&oplus_attr_shell_temp.attr,
-	&oplus_attr_tc_dry_run.attr,
 #endif /* OPLUS_FEATURE_DISPLAY */
 	&oplus_attr_backlight_smooth.attr,
 	&oplus_attr_dsi_log_switch.attr,

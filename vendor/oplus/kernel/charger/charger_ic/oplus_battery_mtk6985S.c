@@ -135,7 +135,6 @@ extern void oplus_notify_hvdcp_detect_stat(void);
 extern void oplus_set_hvdcp_flag_clear(void);
 void oplus_otg_enable_by_buckboost(void);
 void oplus_otg_disable_by_buckboost(void);
-int chr_get_debug_level(void);
 extern bool tcpm_is_floating_ground(struct tcpc_device *tcpc);
 extern bool mt6375_int_chrdet_attach(void);
 
@@ -4783,14 +4782,6 @@ static int oplus_chg_shipmode_parse_dt(struct oplus_chg_chip *chip)
 
 	return rc;
 }
-
-int oplus_force_get_subboard_temp(void)
-{
-/* todo */
-	return 0;
-}
-EXPORT_SYMBOL(oplus_force_get_subboard_temp);
-
 
 static bool oplus_usbtemp_check_is_gpio(struct oplus_chg_chip *chip)
 {

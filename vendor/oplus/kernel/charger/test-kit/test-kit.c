@@ -23,9 +23,6 @@
 #if IS_ENABLED(CONFIG_PINCTRL_MTK_V2)
 #include "pinctrl-mtk-common-v2.h"
 #endif
-#if IS_ENABLED(CONFIG_PINCTRL_MSM)
-#include "../../pinctrl/qcom/pinctrl-msm.h"
-#endif
 
 #define STRING_BUF_SIZE		4096
 enum {
@@ -33,38 +30,6 @@ enum {
 	FEATURE_TEST_DISABLED,
 	FEATURE_TEST_FAIL,
 };
-
-#if IS_ENABLED(CONFIG_PINCTRL_MSM)
-#define MAX_NR_GPIO 300
-#define MAX_NR_TILES 4
-#define MSM_PINCTRL_MUX_BIT	7
-#define MSM_PINCTRL_DRV_BIT	7
-#define MSM_PINCTRL_PULL_BIT	3
-
-struct msm_pinctrl {
-	struct device *dev;
-	struct pinctrl_dev *pctrl;
-	struct gpio_chip chip;
-	struct pinctrl_desc desc;
-	struct notifier_block restart_nb;
-
-	struct irq_chip irq_chip;
-	int irq;
-
-	bool intr_target_use_scm;
-
-	raw_spinlock_t lock;
-
-	DECLARE_BITMAP(dual_edge_irqs, MAX_NR_GPIO);
-	DECLARE_BITMAP(enabled_irqs, MAX_NR_GPIO);
-	DECLARE_BITMAP(skip_wake_irqs, MAX_NR_GPIO);
-	DECLARE_BITMAP(disabled_for_mux, MAX_NR_GPIO);
-
-	const struct msm_pinctrl_soc_data *soc;
-	void __iomem *regs[MAX_NR_TILES];
-	u32 phys_base[MAX_NR_TILES];
-};
-#endif
 
 struct test_kit {
 	struct miscdevice test_dev;
@@ -84,23 +49,6 @@ struct test_kit {
 };
 
 struct test_kit *g_test_kit;
-
-#if IS_ENABLED(CONFIG_PINCTRL_MSM)
-#define MSM_ACCESSOR(name) \
-static u32 msm_readl_##name(struct msm_pinctrl *pctrl, \
-			    const struct msm_pingroup *g) \
-{ \
-	return readl(pctrl->regs[g->tile] + g->name##_reg); \
-} \
-
-MSM_ACCESSOR(ctl)
-MSM_ACCESSOR(io)
-
-static unsigned msm_regval_to_drive(u32 val)
-{
-	return (val + 1) * 2;
-}
-#endif
 
 /* common test func */
 bool test_kit_typec_port_test(struct test_feature *feature,
@@ -584,127 +532,7 @@ EXPORT_SYMBOL(test_kit_mtk_gpio_check);
 
 bool test_kit_qcom_gpio_check(void *info, char *buf, size_t len, size_t *use_size)
 {
-#if IS_ENABLED(CONFIG_PINCTRL_MSM)
-	struct test_kit_soc_gpio_info *gpio_info = info;
-	const struct msm_pingroup *g;
-	struct gpio_chip *chip;
-	struct msm_pinctrl *pctrl;
-	unsigned offset;
-	unsigned func;
-	int is_out;
-	int drive;
-	int pull;
-	int val;
-	u32 ctl_reg, io_reg;
-	bool pass = true;
-
-	static const char * const pulls_keeper[] = {
-		"no pull",
-		"pull down",
-		"keeper",
-		"pull up"
-	};
-
-	static const char * const pulls_no_keeper[] = {
-		"no pull",
-		"pull down",
-		"pull up",
-	};
-
-	if (info == NULL) {
-		pr_err("[GPIO-CHECK]: info is NULL\n");
-		return false;
-	}
-	if (buf == NULL) {
-		pr_err("[GPIO-CHECK]: buf is NULL\n");
-		return false;
-	}
-	*use_size = 0;
-	offset = gpio_info->num;
-	chip = gpio_info->chip;
-	if (chip == NULL) {
-		pr_err("[GPIO-CHECK]: gpio_chip is NULL\n");
-		*use_size += snprintf(buf + *use_size, len - *use_size,
-			"[%s][gpio%u]:gpio_chip is NULL\n",
-			gpio_info->name, offset);
-		return false;
-	}
-	pr_err("[GPIO-CHECK]: gpio_chip :%p, chip :%p\n", gpio_info->chip, chip);
-	pctrl = gpiochip_get_data(chip);
-
-	if (!gpiochip_line_is_valid(chip, offset)) {
-		*use_size += snprintf(buf + *use_size, len - *use_size,
-			"[%s][gpio%u]:is invalid\n", gpio_info->name, offset);
-		return false;
-	}
-
-	g = &pctrl->soc->groups[offset];
-	ctl_reg = msm_readl_ctl(pctrl, g);
-	io_reg = msm_readl_io(pctrl, g);
-
-	is_out = !!(ctl_reg & BIT(g->oe_bit));
-	func = (ctl_reg >> g->mux_bit) & MSM_PINCTRL_MUX_BIT;
-	drive = (ctl_reg >> g->drv_bit) & MSM_PINCTRL_DRV_BIT;
-	pull = (ctl_reg >> g->pull_bit) & MSM_PINCTRL_PULL_BIT;
-
-	if (is_out)
-		val = !!(io_reg & BIT(g->out_bit));
-	else
-		val = !!(io_reg & BIT(g->in_bit));
-
-	if (is_out != gpio_info->is_out) {
-		*use_size += snprintf(buf + *use_size, len - *use_size,
-			"[%s][gpio%u][direction error]:expected:%s, actually:%s\n",
-			gpio_info->name, offset,
-			gpio_info->is_out ? "out" : "in",
-			is_out ? "out" : "in");
-		pass = false;
-	}
-
-	if (!!val != gpio_info->is_high) {
-		*use_size += snprintf(buf + *use_size, len - *use_size,
-			"[%s][gpio%u][level error]:expected:%s, actually:%s\n",
-			gpio_info->name, offset,
-			gpio_info->is_high ? "high" : "low",
-			val ? "high" : "low");
-		pass = false;
-	}
-
-	if (func != gpio_info->func) {
-		*use_size += snprintf(buf + *use_size, len - *use_size,
-			"[%s][gpio%u][level error]:expected:%d, actually:%d\n",
-			gpio_info->name, offset, gpio_info->func, func);
-		pass = false;
-	}
-
-	if (msm_regval_to_drive(drive) != gpio_info->drive) {
-		*use_size += snprintf(buf + *use_size, len - *use_size,
-			"[%s][gpio%u][drive error]:expected:%dmA, actually:%dmA\n",
-			gpio_info->name, offset, gpio_info->drive,
-			msm_regval_to_drive(drive));
-		pass = false;
-	}
-
-	if (pull != gpio_info->pull) {
-		if (pctrl->soc->pull_no_keeper)
-			*use_size += snprintf(buf + *use_size, len - *use_size,
-				"[%s][gpio%u][pull error]:expected:%s, actually:%s\n",
-				gpio_info->name, offset,
-				pulls_no_keeper[gpio_info->pull],
-				pulls_no_keeper[pull]);
-		else
-			*use_size += snprintf(buf + *use_size, len - *use_size,
-				"[%s][gpio%u][pull error]:expected:%s, actually:%s\n",
-				gpio_info->name, offset,
-				pulls_keeper[gpio_info->pull],
-				pulls_keeper[pull]);
-		pass = false;
-	}
-
-	return pass;
-#else
 	return false;
-#endif
 }
 EXPORT_SYMBOL(test_kit_qcom_gpio_check);
 
@@ -969,9 +797,6 @@ static __init int test_kit_driver_init(void)
 		pr_err("misc_register failed, rc=%d\n", rc);
 		goto test_dev_reg_err;
 	}
-
-	test_kit->mtk_soc_gpio_check = test_kit_mtk_gpio_check;
-	test_kit->qcom_soc_gpio_check = test_kit_qcom_gpio_check;
 
 	g_test_kit = test_kit;
 	return 0;

@@ -2,6 +2,7 @@
 #include <linux/sched/task.h>
 #include <linux/uaccess.h>
 #include <../kernel/oplus_cpu/sched/sched_assist/sa_common.h>
+#include "frame_ioctl.h"
 #include "frame_group.h"
 #include "cluster_boost.h"
 
@@ -14,28 +15,31 @@ static DEFINE_RAW_SPINLOCK(preferred_cluster_id_lock);
  */
 static atomic_t user_interested_tgid = ATOMIC_INIT(-1);
 
-int __fbg_set_task_preferred_cluster(pid_t tid, int cluster_id)
+int fbg_set_task_preferred_cluster(void __user *uarg)
 {
+	struct ofb_ctrl_cluster data;
 	struct task_struct * task = NULL;
 	struct oplus_task_struct *ots = NULL;
 	unsigned long flags;
 
+	if (uarg == NULL)
+		return -EINVAL;
+
+	if (copy_from_user(&data, uarg, sizeof(data)))
+		return -EFAULT;
+
 	rcu_read_lock();
-	task = find_task_by_vpid(tid);
+	task = find_task_by_vpid(data.tid);
 	if (task)
 		get_task_struct(task);
 	rcu_read_unlock();
 
 	if (task) {
-		ots = get_oplus_task_struct(task);
-		if (IS_ERR_OR_NULL(ots)) {
-			put_task_struct(task);
-			return 0;
-		}
 		atomic_set(&user_interested_tgid, task->tgid);
+		ots = get_oplus_task_struct(task);
 		raw_spin_lock_irqsave(&preferred_cluster_id_lock, flags);
-		if ((cluster_id >= 0) && (cluster_id < num_sched_clusters)) {
-			ots->preferred_cluster_id = cluster_id;
+		if ((data.cluster_id >= 0) && (data.cluster_id < num_sched_clusters)) {
+			ots->preferred_cluster_id = data.cluster_id;
 		} else {
 			ots->preferred_cluster_id = -1;
 		}
@@ -45,7 +49,6 @@ int __fbg_set_task_preferred_cluster(pid_t tid, int cluster_id)
 
 	return 0;
 }
-EXPORT_SYMBOL_GPL(__fbg_set_task_preferred_cluster);
 
 bool fbg_cluster_boost(struct task_struct *p, int *target_cpu)
 {

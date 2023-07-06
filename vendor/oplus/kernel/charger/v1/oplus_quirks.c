@@ -307,7 +307,6 @@ int oplus_quirks_notify_plugin(int plugin) {
 	int count;
 	int cc_online = 0;
 	static int last_plugin = -1;
-	struct oplus_pps_chip *pps_chip;
 
 	if (!chip) {
 		chg_err("g_quirks_chip null!\n");
@@ -328,7 +327,6 @@ int oplus_quirks_notify_plugin(int plugin) {
 	}
 
 	chg_err("plugin:%d, last_plugin:%d\n", plugin, last_plugin);
-	pps_chip = oplus_pps_get_pps_chip();
 	if (last_plugin == plugin) {
 		chg_err("plugin:%d, last_plugin:%d, return\n", plugin, last_plugin);
 		return 0;
@@ -367,13 +365,11 @@ int oplus_quirks_notify_plugin(int plugin) {
 						oplus_quirks_voocphy_turn_on(0);
 					}
 					oplus_quirks_update_plugin_timer(chip, ABNORMAL_DISCONNECT_INTERVAL);
-					oplus_pps_track_upload_err_info(pps_chip, TRACK_PPS_ERR_QUIRKS_COUNT, count);
 				} else if (count >= PPS_CONNECT_ERROR_COUNT_LEVEL_1) {
 					chip->keep_connect = 1;
 					oplus_set_quirks_plug_status(QUIRKS_STOP_PPS, 1);
 					oplus_adsp_voocphy_force_svooc(1);
 					oplus_quirks_update_plugin_timer(chip, ABNORMAL_DISCONNECT_INTERVAL);
-					oplus_pps_track_upload_err_info(pps_chip, TRACK_PPS_ERR_QUIRKS_COUNT, count);
 					chg_err("abnormal_diconnect_count:%d, cc_online:%d, do not keep connect, force svooc", count, cc_online);
 				} else {
 					chip->keep_connect = 1;

@@ -23,11 +23,6 @@ extern ssize_t hybridswap_enable_store(struct device *dev,
 				       struct device_attribute *attr, const char *buf, size_t len);
 extern ssize_t hybridswap_enable_show(struct device *dev,
 				      struct device_attribute *attr, char *buf);
-extern ssize_t hybridswap_swapd_zram_init_show(struct device *dev,
-		struct device_attribute *attr, char *buf);
-extern ssize_t hybridswap_swapd_zram_init_store(struct device *dev,
-		struct device_attribute *attr, const char *buf, size_t len);
-
 #ifdef CONFIG_HYBRIDSWAP_CORE
 extern void hybridswap_track(struct zram *zram, u32 index, struct mem_cgroup *memcg);
 extern void hybridswap_untrack(struct zram *zram, u32 index);
@@ -75,7 +70,4 @@ extern ssize_t hybridswap_swapd_pause_show(struct device *dev,
 extern bool current_is_hybrid_swapd(void);
 #endif
 
-#ifdef CONFIG_CONT_PTE_HUGEPAGE
-extern int get_cont_pte_pool_high(void);
-#endif
 #endif /* HYBRIDSWAP_H */

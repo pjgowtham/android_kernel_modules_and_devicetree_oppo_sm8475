@@ -2860,8 +2860,8 @@ static int oplus_sy6970_set_aicr(int current_ma)
 		goto aicl_end;
 
 aicl_pre_step:
-	if ((chip->is_double_charger_support) &&
-	    (chip->slave_charger_enable || chip->em_mode)) {
+	if ((chip->is_double_charger_support)
+		&& (chip->slave_charger_enable || chip->em_mode)) {
 		slave_cur = (usb_icl[i] * g_oplus_chip->slave_pct)/100;
 		slave_cur -= slave_cur % 100;
 		main_cur = usb_icl[i] - slave_cur;
@@ -2880,6 +2880,14 @@ aicl_pre_step:
                         chip->slave_charger_enable = true;
 			oplus_sy6970_set_ichg(EM_MODE_ICHG_MA);
                 }
+	}else{
+		if (atomic_read(&g_bq->charger_suspended) == 1) {
+			g_bq->before_suspend_icl = usb_icl[i];
+			chg_err("during aicl, force input current to 100mA,before=%dmA\n", g_bq->before_suspend_icl);
+			sy6970_set_input_current_limit(g_bq, 100);
+		} else {
+			sy6970_set_input_current_limit(g_bq, usb_icl[i]);
+		}
 	}
 
 	chg_info("aicl_pre_step: current limit aicl chg_vol=%d j[%d]=%d sw_aicl_point:%d, main %d mA, slave %d mA, slave_charger_enable:%d\n",
@@ -2888,8 +2896,8 @@ aicl_pre_step:
 		chip->slave_charger_enable);
 	return rc;
 aicl_end:
-	if ((g_oplus_chip->is_double_charger_support) &&
-	    (chip->slave_charger_enable || chip->em_mode)) {
+	if ((g_oplus_chip->is_double_charger_support)
+		&& (chip->slave_charger_enable || chip->em_mode)) {
 		slave_cur = (usb_icl[i] * g_oplus_chip->slave_pct)/FULL_PCT;
 		slave_cur -= slave_cur % 100;
 		main_cur = usb_icl[i] - slave_cur;
@@ -2907,10 +2915,8 @@ aicl_end:
 			chip->slave_charger_enable = true;
 			oplus_sy6970_set_ichg(EM_MODE_ICHG_MA);
 		}
-	}
-
-	if (!chip->is_double_charger_support) {
-		if (atomic_read(&g_bq->charger_suspended) == 1 || chip->stop_chg == 0) {
+	}else{
+		if (atomic_read(&g_bq->charger_suspended) == 1) {
 			g_bq->before_suspend_icl = usb_icl[i];
 			chg_err("during aicl, force input current to 100mA,before=%dmA\n", g_bq->before_suspend_icl);
 			sy6970_set_input_current_limit(g_bq, 100);
@@ -3080,7 +3086,7 @@ int oplus_sy6970_is_charging_done(void)
 
 }
 
-static void oplus_set_prswap(bool swap)
+void oplus_set_prswap(bool swap)
 {
 	chg_debug("%s set prswap %d\n", __func__, swap);
 
@@ -3972,7 +3978,6 @@ struct oplus_chg_operations  oplus_chg_sy6970_ops = {
 	.force_pd_to_dcp = sy6970_force_pd_to_dcp,
 	.really_suspend_charger = sy6970_really_suspend_charger,
 	.pdo_5v = oplus_sy6970_set_pdo_5v,
-	.set_prswap = oplus_set_prswap,
 };
 
 static void retry_detection_work_callback(struct work_struct *work)

@@ -30,7 +30,6 @@ struct oplus_monitor {
 	struct work_struct wired_plugin_work;
 	struct work_struct ffc_step_change_work;
 	struct votable *fv_votable;
-	struct delayed_work water_inlet_detect_work;
 	struct votable *wired_icl_votable;
 	struct votable *wired_fcc_votable;
 	struct votable *wired_charge_suspend_votable;
@@ -81,9 +80,6 @@ struct oplus_monitor {
 	bool wired_user_suspend;
 	int cc_detect;
 	bool otg_enable;
-	bool pd_svooc;
-	bool liquid_inlet_detection_switch;
-	int water_inlet_plugin_count;
 
 	/* wireless */
 	int wls_ibus_ma;
@@ -104,7 +100,6 @@ struct oplus_monitor {
 	bool led_on;
 	bool rechging;
 	bool ui_soc_ready;
-	int chg_cycle_status;
 
 	/* vooc */
 	bool vooc_online;

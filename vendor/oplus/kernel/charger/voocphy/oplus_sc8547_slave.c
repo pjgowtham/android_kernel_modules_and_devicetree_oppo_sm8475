@@ -37,15 +37,11 @@
 #include "../oplus_charger.h"
 #include "oplus_sc8547.h"
 #include "../oplus_chg_module.h"
-#define DEFAULT_OVP_REG_CONFIG	0x2E
-#define DEFAULT_OCP_REG_CONFIG	0x8
 
 static struct oplus_voocphy_manager *oplus_voocphy_mg = NULL;
 static struct mutex i2c_rw_lock;
 static bool error_reported = false;
 static bool ic_sc8547a = false;
-static int slave_ovp_reg = DEFAULT_OVP_REG_CONFIG;
-static int slave_ocp_reg = DEFAULT_OCP_REG_CONFIG;
 
 extern void oplus_chg_sc8547_error(int report_flag, int *buf, int len);
 static int sc8547_slave_get_chg_enable(struct oplus_voocphy_manager *chip, u8 *data);
@@ -377,14 +373,12 @@ static int sc8547_slave_init_device(struct oplus_voocphy_manager *chip)
 	sc8547_slave_write_byte(chip->slave_client, SC8547_REG_11, 0x00);	//ADC_CTRL:disable
 	sc8547_slave_write_byte(chip->slave_client, SC8547_REG_02, 0x07);	//
 	sc8547_slave_write_byte(chip->slave_client, SC8547_REG_04, 0x00);	//VBUS_OVP:10 2:1 or 1:1V
-	reg_data = slave_ovp_reg & SC8547_BAT_OVP_MASK;
+	reg_data = 0x20 | (chip->ocp_reg & 0xf);
 	sc8547_slave_write_byte(chip->slave_client, SC8547_REG_00, reg_data);	//VBAT_OVP:4.65V
 	if (!ic_sc8547a)
-		reg_data = (SC8547_IBUS_UCP_FALL_DEGLITCH_SET_5MS << SC8547_IBUS_UCP_FALL_DEGLITCH_SET_SHIFT)
-				| (slave_ocp_reg & SC8547_IBUS_OCP_MASK);
+		reg_data = 0x28;
 	else
-		reg_data = (SC8547A_IBUS_UCP_FALL_DEGLITCH_SET_5MS << SC8547A_IBUS_UCP_FALL_DEGLITCH_SET_SHIFT)
-				| (slave_ocp_reg & SC8547A_IBUS_OCP_MASK);
+		reg_data = 0x18;
 	sc8547_slave_write_byte(chip->slave_client, SC8547_REG_05, reg_data);	//IBUS_OCP_UCP:3.6A
 	sc8547_slave_write_byte(chip->slave_client, SC8547_REG_2B, 0x00);	//VOOC_CTRL:disable
 	sc8547_slave_write_byte(chip->slave_client, SC8547_REG_30, 0x7F);
@@ -410,15 +404,15 @@ static int sc8547_slave_reset_device(struct oplus_voocphy_manager *chip)
 					SC8547_REG_02, 0x07);
 	sc8547_slave_write_byte(chip->slave_client,
 				SC8547_REG_04, 0x00); /* VBUS_OVP:10 2:1 or 1:1V */
-	reg_data = slave_ovp_reg & SC8547_BAT_OVP_MASK;
+	reg_data = 0x20 | (chip->ocp_reg & 0xf);
 	sc8547_slave_write_byte(chip->slave_client,
 				SC8547_REG_00, reg_data); /* VBAT_OVP:4.65V */
 	if (!ic_sc8547a) {
-		reg_data = (SC8547_IBUS_UCP_FALL_DEGLITCH_SET_5MS << SC8547_IBUS_UCP_FALL_DEGLITCH_SET_SHIFT)
-				| (slave_ocp_reg & SC8547_IBUS_OCP_MASK);
+		/* bit5:4 sc8547 deglitch time for IBUS_UCP_FALL 5ms */
+		reg_data = 0x28;
 	} else {
-		reg_data = (SC8547A_IBUS_UCP_FALL_DEGLITCH_SET_5MS << SC8547A_IBUS_UCP_FALL_DEGLITCH_SET_SHIFT)
-				| (slave_ocp_reg & SC8547A_IBUS_OCP_MASK);
+		/* bit5:4 sc8547a deglitch time for IBUS_UCP_FALL 5ms */
+		reg_data = 0x18;
 	}
 	sc8547_slave_write_byte(chip->slave_client, SC8547_REG_05,
 				reg_data); /* IBUS_OCP_UCP:3.6A  */
@@ -466,11 +460,9 @@ static int sc8547_slave_svooc_hw_setting(struct oplus_voocphy_manager *chip)
 	sc8547_slave_write_byte(chip->slave_client, SC8547_REG_02, 0x01);	//VAC_OVP:12v
 	sc8547_slave_write_byte(chip->slave_client, SC8547_REG_04, 0x50);	//VBUS_OVP:10v
 	if (!ic_sc8547a)
-		reg_data = (SC8547_IBUS_UCP_FALL_DEGLITCH_SET_5MS << SC8547_IBUS_UCP_FALL_DEGLITCH_SET_SHIFT)
-				| (slave_ocp_reg & SC8547_IBUS_OCP_MASK);
+		reg_data = 0x20 | (chip->ocp_reg & 0xf);
 	else
-		reg_data = (SC8547A_IBUS_UCP_FALL_DEGLITCH_SET_5MS << SC8547A_IBUS_UCP_FALL_DEGLITCH_SET_SHIFT)
-				| (slave_ocp_reg & SC8547A_IBUS_OCP_MASK);
+		reg_data = 0x10 | (chip->ocp_reg & 0xf);
 	sc8547_slave_write_byte(chip->slave_client, SC8547_REG_05, reg_data);	//IBUS_OCP_UCP:3.6A
 	sc8547_slave_write_byte(chip->slave_client, SC8547_REG_09, 0x03);	//WD:1000ms
 	sc8547_slave_write_byte(chip->slave_client, SC8547_REG_3C, 0x40);	//VOOC_CTRL:disable
@@ -668,20 +660,12 @@ static int sc8547_slave_parse_dt(struct oplus_voocphy_manager *chip)
 
 	node = chip->slave_dev->of_node;
 
-  	rc = of_property_read_u32(node, "ovp_reg",
-  	                          &slave_ovp_reg);
-  	if (rc) {
-  		slave_ovp_reg = DEFAULT_OVP_REG_CONFIG;
-  	} else {
-  		chg_err("slave_ovp_reg is %d\n", slave_ovp_reg);
-  	}
-
 	rc = of_property_read_u32(node, "ocp_reg",
-					&slave_ocp_reg);
+					&chip->ocp_reg);
 	if (rc) {
-		slave_ocp_reg = DEFAULT_OCP_REG_CONFIG;
+		chip->ocp_reg = 0x8;
 	} else {
-		chg_err("slave_ocp_reg is %d\n", slave_ocp_reg);
+		chg_err("ocp_reg is %d\n", chip->ocp_reg);
 	}
 
 	return 0;

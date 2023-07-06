@@ -21,8 +21,6 @@
 #include <oplus_mms_gauge.h>
 #include <oplus_mms_wired.h>
 #include <oplus_smart_chg.h>
-#include <oplus_battery_log.h>
-#include <oplus_parallel.h>
 
 struct oplus_configfs_device {
 	struct class *oplus_chg_class;
@@ -40,7 +38,6 @@ struct oplus_configfs_device {
 	struct oplus_mms *wls_topic;
 	struct oplus_mms *vooc_topic;
 	struct oplus_mms *comm_topic;
-	struct oplus_mms *parallel_topic;
 
 	struct work_struct gauge_update_work;
 
@@ -69,7 +66,6 @@ struct oplus_configfs_device {
 
 	bool wls_online;
 	int wls_type;
-	int wls_status_keep;
 
 	bool vooc_started;
 	bool vooc_online;
@@ -81,7 +77,6 @@ struct oplus_configfs_device {
 	unsigned int notify_code;
 
 	int bcc_current;
-	bool mos_test_result;
 };
 
 static struct oplus_configfs_device *g_cfg_dev;
@@ -118,15 +113,6 @@ is_vooc_curr_votable_available(struct oplus_configfs_device *chip)
 	return !!chip->vooc_curr_votable;
 }
 
-static bool is_parallel_topic_available(struct oplus_configfs_device *chip)
-{
-	if (!chip->parallel_topic)
-		chip->parallel_topic = oplus_mms_get_by_name("parallel");
-
-	return !!chip->parallel_topic;
-}
-
-static int fast_chg_type_by_user = -1;
 static ssize_t fast_chg_type_show(struct device *dev,
 				  struct device_attribute *attr, char *buf)
 {
@@ -181,26 +167,10 @@ static ssize_t fast_chg_type_show(struct device *dev,
 			fast_chg_type = sid_to_adapter_id(chip->vooc_sid);
 		}
 	}
-	if (fast_chg_type_by_user > 0)
-		fast_chg_type = fast_chg_type_by_user;
 
 	return sprintf(buf, "%d\n", fast_chg_type);
 }
-
-static ssize_t fast_chg_type_store(struct device *dev, struct device_attribute *attr, const char *buf, size_t count)
-{
-	int val = 0;
-
-	if (kstrtos32(buf, 0, &val)) {
-		chg_err("buf error\n");
-		return -EINVAL;
-	}
-
-	fast_chg_type_by_user = val;
-
-	return count;
-}
-static DEVICE_ATTR_RW(fast_chg_type);
+static DEVICE_ATTR_RO(fast_chg_type);
 
 static ssize_t otg_online_show(struct device *dev,
 			       struct device_attribute *attr, char *buf)
@@ -766,7 +736,6 @@ int __attribute__((weak)) oplus_gauge_set_bcc_parameters(const char *buf)
 }
 
 #define VOOC_MCU_PROJECT 7
-#define VOOC_MCU_PROJECT_100W	8
 static ssize_t bcc_parms_show(struct device *dev, struct device_attribute *attr,
 		char *buf)
 {
@@ -777,7 +746,6 @@ static ssize_t bcc_parms_show(struct device *dev, struct device_attribute *attr,
 	int rc;
 	bool fastchg_started = false;
 	int vooc_project = 0;
-	int chg_type = oplus_wired_get_chg_type();
 
 	if (!chip) {
 		chg_err("chip is NULL\n");
@@ -797,19 +765,13 @@ static ssize_t bcc_parms_show(struct device *dev, struct device_attribute *attr,
 
 	fastchg_started = data.intval;
 
-	/* I2C access conflict may occur when using MCU fast charging scheme.
-	   only SVOOC charging need to get the bcc parameters.*/
-	if ((vooc_project == VOOC_MCU_PROJECT || vooc_project == VOOC_MCU_PROJECT_100W)
-		&& chg_type == OPLUS_CHG_USB_TYPE_SVOOC) {
+	if (vooc_project == VOOC_MCU_PROJECT)
 		val = oplus_gauge_get_prev_bcc_parameters(buf);
-		val = oplus_smart_chg_get_prev_battery_bcc_parameters(buf);
-	} else {
+	else
 		val = oplus_gauge_get_bcc_parameters(buf);
-		val = oplus_smart_chg_get_battery_bcc_parameters(buf);
-	}
 
 	len = strlen(buf);
-	chg_err("bcc_parms_show len: %ld\n", len);
+	chg_err("len: %ld\n", len);
 
 	return len;
 }
@@ -825,7 +787,6 @@ static ssize_t bcc_parms_store(struct device *dev, struct device_attribute *attr
 	}
 
 	ret = oplus_gauge_set_bcc_parameters(buf);
-	ret = oplus_smart_chg_set_bcc_debug_parameters(buf);
 	if (ret < 0) {
 		chg_err("error\n");
 		return -EINVAL;
@@ -987,144 +948,6 @@ static ssize_t aging_ffc_data_store(struct device *dev, struct device_attribute 
 }
 static DEVICE_ATTR_RW(aging_ffc_data);
 
-static ssize_t battery_log_head_show(struct device *dev, struct device_attribute *attr,
-		char *buf)
-{
-	struct oplus_configfs_device *chip = dev->driver_data;
-
-	if (!chip) {
-		chg_err("chip is NULL\n");
-		return -EINVAL;
-	}
-
-	if (oplus_battery_log_support() != true) {
-		chg_err("this proect dont support read battery log\n");
-		return -ENODEV;
-	}
-
-	return battery_log_common_operate(BATTERY_LOG_DUMP_LOG_HEAD,
-		buf, BATTERY_LOG_MAX_SIZE);
-}
-static DEVICE_ATTR_RO(battery_log_head);
-
-static ssize_t battery_log_content_show(struct device *dev, struct device_attribute *attr,
-		char *buf)
-{
-	struct oplus_configfs_device *chip = dev->driver_data;
-
-	if (!chip) {
-		chg_err("chip is NULL\n");
-		return -EINVAL;
-	}
-
-	if (oplus_battery_log_support() != true) {
-		chg_err("this proect dont support read battery log\n");
-		return -ENODEV;
-	}
-
-	return battery_log_common_operate(BATTERY_LOG_DUMP_LOG_CONTENT,
-		buf, BATTERY_LOG_MAX_SIZE);
-}
-static DEVICE_ATTR_RO(battery_log_content);
-
-static ssize_t parallel_chg_mos_test_show(struct device *dev, struct device_attribute *attr,
-		char *buf)
-{
-	struct oplus_configfs_device *chip = dev->driver_data;
-	union mms_msg_data data = { 0 };
-	bool mos_status;
-	int balancing_bat_status;
-	int mos_test_result;
-
-	if (!chip) {
-		chg_err("chip is NULL\n");
-		return -EINVAL;
-	}
-	if (!is_support_parallel_battery(chip->gauge_topic))
-		return -ENODEV;
-
-	if (is_parallel_topic_available(chip)) {
-		oplus_mms_get_item_data(chip->parallel_topic, SWITCH_ITEM_HW_ENABLE_STATUS,
-					&data, true);
-		mos_status = data.intval;
-		oplus_mms_get_item_data(chip->parallel_topic, SWITCH_ITEM_STATUS,
-					&data, true);
-		balancing_bat_status = data.intval;
-	} else {
-		chg_err("can't get parallel_topic\n");
-		return -ENODEV;
-	}
-
-
-	if (!mos_status ||
-	    balancing_bat_status == PARALLEL_BAT_BALANCE_ERROR_STATUS8 ||
-	    balancing_bat_status == PARALLEL_BAT_BALANCE_ERROR_STATUS9) {
-			chg_err("mos: %d, test next time!\n", mos_status);
-			return 0;
-	}
-	mos_test_result = oplus_parallel_chg_mos_test(chip->parallel_topic);
-
-	return sprintf(buf, "%d\n", mos_test_result);
-}
-static DEVICE_ATTR_RO(parallel_chg_mos_test);
-
-static ssize_t parallel_chg_mos_status_show(struct device *dev, struct device_attribute *attr,
-		char *buf)
-{
-	struct oplus_configfs_device *chip = dev->driver_data;
-	union mms_msg_data data = { 0 };
-
-	if (!chip) {
-		chg_err("chip is NULL\n");
-		return -EINVAL;
-	}
-	if (!is_support_parallel_battery(chip->gauge_topic))
-		return -ENODEV;
-
-	if (is_parallel_topic_available(chip)) {
-		oplus_mms_get_item_data(chip->parallel_topic, SWITCH_ITEM_HW_ENABLE_STATUS,
-					&data, true);
-	} else {
-		chg_err("can't get parallel_topic\n");
-		return -ENODEV;
-	}
-
-	return sprintf(buf, "%d\n", data.intval);
-}
-static DEVICE_ATTR_RO(parallel_chg_mos_status);
-
-static ssize_t bms_heat_temp_compensation_show(struct device *dev, struct device_attribute *attr, char *buf)
-{
-	struct oplus_configfs_device *chip = dev->driver_data;
-	int bms_heat_temp_compensation;
-
-	bms_heat_temp_compensation = oplus_comm_get_bms_heat_temp_compensation(chip->comm_topic);
-	chg_debug("get bms compensation = %d\n", bms_heat_temp_compensation);
-
-	return sprintf(buf, "%d\n", bms_heat_temp_compensation);
-}
-
-static ssize_t bms_heat_temp_compensation_store(struct device *dev, struct device_attribute *attr,
-					const char *buf, size_t count)
-{
-	int val = 0;
-	struct oplus_configfs_device *chip = dev->driver_data;
-	int bms_heat_temp_compensation;
-
-	if (kstrtos32(buf, 0, &val)) {
-		chg_err("buf error\n");
-		return -EINVAL;
-	}
-
-	bms_heat_temp_compensation = val;
-	chg_debug("set bms compensation = %d\n", bms_heat_temp_compensation);
-
-	oplus_comm_set_bms_heat_temp_compensation(chip->comm_topic, val);
-
-	return count;
-}
-static DEVICE_ATTR_RW(bms_heat_temp_compensation);
-
 static struct device_attribute *oplus_battery_attributes[] = {
 	&dev_attr_authenticate,
 	&dev_attr_battery_cc,
@@ -1175,11 +998,6 @@ static struct device_attribute *oplus_battery_attributes[] = {
 	&dev_attr_aging_ffc_data,
 	&dev_attr_design_capacity,
 	&dev_attr_smartchg_soh_support,
-	&dev_attr_battery_log_head,
-	&dev_attr_battery_log_content,
-	&dev_attr_parallel_chg_mos_test,
-	&dev_attr_parallel_chg_mos_status,
-	&dev_attr_bms_heat_temp_compensation,
 	NULL
 };
 
@@ -1260,54 +1078,6 @@ static ssize_t real_type_show(struct device *dev, struct device_attribute *attr,
 }
 static DEVICE_ATTR_RO(real_type);
 
-static ssize_t status_keep_show(struct device *dev, struct device_attribute *attr, char *buf)
-{
-	int status_keep = 0;
-	struct oplus_configfs_device *chip = NULL;
-
-	if (!dev || !buf) {
-		chg_err("dev or buf is NULL\n");
-		return -EINVAL;
-	}
-
-	chip = dev->driver_data;
-	if (!chip) {
-		chg_err("chip is NULL\n");
-		return -EINVAL;
-	}
-	status_keep = chip->wls_status_keep;
-	return sprintf(buf, "%d\n", status_keep);
-}
-
-static ssize_t status_keep_store(struct device *dev, struct device_attribute *attr, const char *buf, size_t count)
-{
-	int val = 0;
-	struct oplus_configfs_device *chip = NULL;
-
-	if (!dev || !buf) {
-		chg_err("dev or buf is NULL\n");
-		return -EINVAL;
-	}
-
-	chip = dev->driver_data;
-	if (!chip) {
-		chg_err("chip is NULL\n");
-		return -EINVAL;
-	}
-
-	if (kstrtos32(buf, 0, &val)) {
-		chg_err("buf error\n");
-		return -EINVAL;
-	}
-
-	/*TODO: need update the status keep for wireless charging*/
-
-	chg_info("set wls_status_keep = %d\n", val);
-	chip->wls_status_keep = val;
-	return count;
-}
-static DEVICE_ATTR_RW(status_keep);
-
 static struct device_attribute *oplus_wireless_attributes[] = {
 	&dev_attr_tx_voltag_now,
 	&dev_attr_tx_current_now,
@@ -1317,7 +1087,6 @@ static struct device_attribute *oplus_wireless_attributes[] = {
 	&dev_attr_wireless_type,
 	&dev_attr_cep_info,
 	&dev_attr_real_type,
-	&dev_attr_status_keep,
 	NULL
 };
 
@@ -1331,18 +1100,11 @@ static ssize_t common_show(struct device *dev, struct device_attribute *attr,
 
 	return sprintf(buf, "%s\n", "common: hello world!");
 }
+
 static DEVICE_ATTR(common, S_IRUGO, common_show, NULL);
 
-static ssize_t boot_completed_show(struct device *dev, struct device_attribute *attr, char *buf)
-{
-	return sprintf(buf, "%d\n", oplus_comm_get_boot_completed());
-}
-static DEVICE_ATTR_RO(boot_completed);
-
-static struct device_attribute *oplus_common_attributes[] = {
-	&dev_attr_common,
-	&dev_attr_boot_completed,
-	NULL };
+static struct device_attribute *oplus_common_attributes[] = { &dev_attr_common,
+							      NULL };
 
 static int oplus_usb_dir_create(struct oplus_configfs_device *chip)
 {
@@ -1455,11 +1217,6 @@ static int oplus_wireless_dir_create(struct oplus_configfs_device *chip)
 	if (!chip) {
 		chg_err("chip is NULL\n");
 		return -EINVAL;
-	}
-
-	if (chip->oplus_wireless_dir) {
-		chg_info("oplus_wireless_dir already exist!\n");
-		return 0;
 	}
 
 	status = alloc_chrdev_region(&devt, 0, 1, "wireless");
@@ -2076,13 +1833,6 @@ static __init int oplus_configfs_init(void)
 		chg_err("oplus_chg_configfs_init fail!\n");
 		rc = PTR_ERR(chip->oplus_chg_class);
 		goto class_create_err;
-	}
-
-	/* TODO: need to delete the wireless dir create after the wireless is supported */
-	rc = oplus_wireless_dir_create(chip);
-	if (rc < 0) {
-		chg_err("oplus_usb_dir_create fail!, rc=%d\n", rc);
-		chip->oplus_wireless_dir = NULL;
 	}
 
 	oplus_mms_wait_topic("gauge", oplus_configfs_subscribe_gauge_topic,

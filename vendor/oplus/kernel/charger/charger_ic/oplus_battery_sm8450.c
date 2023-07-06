@@ -130,6 +130,8 @@ extern bool ext_boot_with_console(void);
 static int smbchg_get_charge_enable(void);
 #endif /*OPLUS_FEATURE_CHG_BASIC*/
 
+extern void oplus_chg_sc8571_error(int report_flag, int *buf, int ret);
+
 #ifdef OPLUS_FEATURE_CHG_BASIC
 /*for p922x compile*/
 void __attribute__((weak)) oplus_set_wrx_otg_value(void)
@@ -708,14 +710,11 @@ void oplus_get_pps_parameters_from_adsp(void)
 	struct oplus_chg_chip *chip = g_oplus_chip;
 	struct battery_chg_dev *bcdev = NULL;
 	int imax = 0, vmax = 0;
-	struct oplus_pps_chip *pps_chip;
-
 	if (!chip) {
 		chg_err("!!!chip null, oplus_get_batt_argv_buffer\n");
 		return;
 	}
 
-	pps_chip = oplus_pps_get_pps_chip();
 	bcdev = chip->pmic_spmi.bcdev_chip;
 	pps_read_buffer(bcdev);
 	imax = bcdev->pps_read_buffer_dump.data_buffer[0];
@@ -727,9 +726,9 @@ void oplus_get_pps_parameters_from_adsp(void)
 		oplus_pps_set_power(OPLUS_PPS_POWER_V2, imax, vmax);
 	} else if ((imax > OPLUS_PPS_IMIN_V1) && (vmax >= OPLUS_EXTEND_VMIN)) {
 		oplus_pps_set_power(OPLUS_PPS_POWER_V1, imax, vmax);
-		oplus_pps_track_upload_err_info(pps_chip, TRACK_PPS_ERR_POWER_V1, imax);
+		oplus_chg_sc8571_error((1 << PPS_REPORT_ERROR_POWER_V1), NULL, imax);
 	} else {
-		oplus_pps_track_upload_err_info(pps_chip, TRACK_PPS_ERR_POWER_V0, imax);
+		oplus_chg_sc8571_error((1 << PPS_REPORT_ERROR_POWER_V0), NULL, imax);
 		oplus_pps_set_power(OPLUS_PPS_POWER_CLR, 0, 0);
 	}
 	chg_err("oplus_get_pps_parameters_from_adsp imax = %d, vmax = %d\n", imax, vmax);
@@ -1261,7 +1260,6 @@ static void otg_notification_handler(struct work_struct *work)
 		}
 	} else if (bcdev->otg_boost_src == OTG_BOOST_SOURCE_PMIC) {
 		enable = (bcdev->otg_prohibited ? false : bcdev->otg_online);
-		oplus_voocphy_set_chg_auto_mode(enable);
 		otg_func_ptr = (enable ? chip->chg_ops->otg_enable : chip->chg_ops->otg_disable);
 		if (otg_func_ptr != NULL) {
 			otg_func_ptr();
@@ -1916,14 +1914,14 @@ static void battery_chg_update_usb_type_work(struct work_struct *work)
 #ifdef OPLUS_FEATURE_CHG_BASIC
 	if (g_oplus_chip) {
 		if (usb_psy_desc.type != POWER_SUPPLY_TYPE_UNKNOWN) {
-			if (chg_type == POWER_SUPPLY_TYPE_USB_DCP
+			if (g_oplus_chip->charger_type == POWER_SUPPLY_TYPE_USB_DCP
 				&& pst->prop[USB_ADAP_TYPE] != POWER_SUPPLY_USB_TYPE_DCP
 				&& bcdev->hvdcp_disable == false) {
 				usb_psy_desc.type = POWER_SUPPLY_TYPE_USB_DCP;
-			} else if (chg_type == POWER_SUPPLY_TYPE_USB
+			} else if (g_oplus_chip->charger_type == POWER_SUPPLY_TYPE_USB
 				&& pst->prop[USB_ADAP_TYPE] != POWER_SUPPLY_USB_TYPE_SDP) {
 				usb_psy_desc.type = POWER_SUPPLY_TYPE_USB;
-			} else if (chg_type == POWER_SUPPLY_TYPE_USB_CDP
+			} else if (g_oplus_chip->charger_type == POWER_SUPPLY_TYPE_USB_CDP
 				&& pst->prop[USB_ADAP_TYPE] != POWER_SUPPLY_USB_TYPE_CDP) {
 				usb_psy_desc.type = POWER_SUPPLY_TYPE_USB_CDP;
 			}

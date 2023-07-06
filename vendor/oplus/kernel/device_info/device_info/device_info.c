@@ -20,24 +20,16 @@
 #include <linux/iio/consumer.h>
 #include <linux/of_fdt.h>
 #include <linux/version.h>
-#include <linux/libfdt.h>
 #if !(defined(CONFIG_MTK_PLATFORM) || defined(CONFIG_OPLUS_DEVICE_INFO_MTK_PLATFORM))
 #include <soc/qcom/of_common.h>
 #endif
 
 #define DEVINFO_NAME "devinfo"
-#define MAX_CMDLINE_PARAM_LEN 1024
+
 #define dev_msg(msg, arg...) pr_err("devinfo:" msg, ##arg);
-#define MAX_CMD_LENGTH 32
+
 #define BOARD_GPIO_SUPPORT 4
 #define MAIN_BOARD_SUPPORT 256
-
-#if (defined(CONFIG_MTK_PLATFORM) || defined(CONFIG_OPLUS_DEVICE_INFO_MTK_PLATFORM))
-struct mr_info_t {
-	unsigned int mr_index;
-	unsigned int mr_value;
-};
-#endif
 
 static struct proc_dir_entry *g_parent = NULL;
 struct device_info {
@@ -48,12 +40,6 @@ struct device_info {
 /*#endif OPLUS_FEATURE_TP_BASIC*/
 	struct list_head dev_list;
 };
-
-static char ddr_vendor_size[MAX_CMDLINE_PARAM_LEN];
-module_param_string(ddr_info, ddr_vendor_size, MAX_CMDLINE_PARAM_LEN,
-  0600);
-MODULE_PARM_DESC(ddr_info,
-  "device_info.ddr_info=<ddrvendorsize>");
 
 static struct device_info *g_dev_info = NULL;
 static int reinit_aboard_id(struct device *dev,
@@ -684,10 +670,6 @@ reinit_aboard_id(struct device *dev, struct manufacture_info *info)
 	struct device_info *dev_info = g_dev_info;
 	bool match = false;
 	int sub_cnt = 1;
-	/*#ifdef OPLUS_TP_FEATURE_BASIC*/
-	int ignore_ret = 0, ignore_size = 0;
-	uint32_t *ignore_list = NULL;
-	/*#endif OPLUS_TP_FEATURE_BASIC*/
 
 	if (!dev) {
 		dev = dev_info->dev;
@@ -725,38 +707,6 @@ reinit_aboard_id(struct device *dev, struct manufacture_info *info)
 			dev_msg("failed to find node\n");
 			return -ENODEV;
 		}
-
-		/*#ifdef OPLUS_TP_FEATURE_BASIC*/
-		ignore_size = of_property_count_elems_of_size(np, "devinfo-match-ignore-list", sizeof(uint32_t));
-		if (ignore_size > 0) {
-			ignore_list = (uint32_t *)kzalloc(sizeof(uint32_t) * ignore_size, GFP_KERNEL);
-			if (!ignore_list) {
-				dev_msg("ignore_list alloc err\n");
-				return -ENOMEM;
-			}
-
-			ignore_ret = of_property_read_u32_array(np, "devinfo-match-ignore-list", ignore_list, ignore_size);
-			if (ignore_ret) {
-				dev_msg("set ignore but not set list!!\n");
-				kfree(ignore_list);
-				return -ENOMEM;
-			} else {
-				for (i = 0; i < ignore_size; i++) {
-					dev_msg("ignore list doing match %d %d %d\n", i, *(ignore_list + i), get_project());
-					if (*(ignore_list + i) == get_project()) {
-						dev_msg("found in ignore list %d going to return success\n", get_project());
-						ret = 0;
-						goto ignore_match_success;
-					}
-				}
-				dev_msg("not found match project!!\n");
-				kfree(ignore_list);
-				return -ENOMEM;
-			}
-		} else {
-			dev_msg("not in ignore list, continue other match process %d\n", get_project());
-		}
-		/*#endif OPLUS_TP_FEATURE_BASIC*/
 
 		id_size = of_property_count_elems_of_size(np, "aboard-patterns", sizeof(uint32_t));
 		dev_msg("id_size is %d\n", id_size);
@@ -975,10 +925,6 @@ read_failed:
 		kfree(region_val);
 	}
 
-ignore_match_success:
-	kfree(ignore_list);
-	ignore_list = NULL;
-
 seccess:
 	if (!ret) {
 		info->manufacture = "rf-match";
@@ -994,104 +940,6 @@ seccess:
 
 	return ret;
 }
-
-
-#if (defined(CONFIG_MTK_PLATFORM) || defined(CONFIG_OPLUS_DEVICE_INFO_MTK_PLATFORM))
-#define DRAMC_MAX_RK 2
-#define DRAMC_MR_CNT 4
-#define DRAMC_SIZE_UNIT 128/1024
-static int __attribute__((__unused__)) init_ddr_vendor_size(struct device_info *dev_info)
-{
-	uint32_t ddr_type = DRAMC_TOP_TYPE_LPDDR5;
-	unsigned int rk_size[DRAMC_MAX_RK];
-	char ddr_manufacture[64];
-	struct manufacture_info *info = NULL;
-	int ret = 0;
-	int i;
-	struct mr_info_t *mr_info = NULL;
-	uint32_t ddr_vendor;
-	struct device_node *mem_node;
-
-	info = (struct manufacture_info *) kzalloc(sizeof(*info), GFP_KERNEL);
-	if (!info) {
-		return -ENOMEM;
-	}
-
-	mem_node = of_find_node_by_path("/dramc@10230000");
-	if (!mem_node) {
-		pr_err("/dramc@10230000 node not found \n");
-		mem_node = of_find_node_by_path("/soc/dramc@10230000");
-		if (!mem_node) {
-			pr_err("/soc/dramc@10230000 node not found \n");
-			return -ENOENT;
-		}
-	}
-
-	mr_info = (struct mr_info_t *)kzalloc(sizeof(struct mr_info_t) * DRAMC_MR_CNT, GFP_KERNEL);
-	ret = of_property_read_u32_array(mem_node, "mr", (unsigned int *)mr_info, (sizeof(struct mr_info_t) * DRAMC_MR_CNT) >> 2);
-	if (ret < 0) {
-		pr_err("mr read error \n");
-		return -ENOENT;
-	}
-
-	for (i=0; i < DRAMC_MR_CNT; i++) {
-		pr_err("mr_info:idx= %d, value, %x \n", mr_info[i].mr_index, mr_info[i].mr_value);
-		if(mr_info[i].mr_index == 5) {
-			ddr_vendor = mr_info[i].mr_value;
-		}
-	}
-
-	ret = of_property_read_u32_array(mem_node, "rk_size", rk_size, 2);
-	if (ret < 0) {
-		pr_err("rk_size read error \n");
-		return -ENOENT;
-	}
-
-	ret = of_property_read_u32(mem_node, "dram_type", &ddr_type);
-	if (ret < 0) {
-		pr_err("dram_type read error \n");
-		return -ENOENT;
-	}
-
-	if (ddr_type == DRAMC_TOP_TYPE_LPDDR5 || ddr_type == DRAMC_TOP_TYPE_LPDDR5X) {
-		info->version = "DDR5";
-	} else if (ddr_type == DRAMC_TOP_TYPE_LPDDR4 || ddr_type == DRAMC_TOP_TYPE_LPDDR4X) {
-		info->version = "DDR4";
-	} else {
-		info->version = "unknown";
-	}
-
-	sprintf(ddr_manufacture, "%d", ddr_vendor);
-	if (strcmp(ddr_manufacture, "1") == 0) {
-		memset(ddr_manufacture, 0, sizeof(ddr_manufacture));
-		strcpy(ddr_manufacture, "Samsung");
-	} else if (strcmp(ddr_manufacture, "6") == 0) {
-		memset(ddr_manufacture, 0, sizeof(ddr_manufacture));
-		strcpy(ddr_manufacture, "Hynix");
-	} else if (strcmp(ddr_manufacture, "19") == 0) {
-		memset(ddr_manufacture, 0, sizeof(ddr_manufacture));
-		strcpy(ddr_manufacture, "Cxmt");
-	} else if (strcmp(ddr_manufacture, "255") == 0) {
-		memset(ddr_manufacture, 0, sizeof(ddr_manufacture));
-		strcpy(ddr_manufacture, "Micron");
-	} else {
-		memset(ddr_manufacture, 0, sizeof(ddr_manufacture));
-		strcpy(ddr_manufacture, "Unknown|");
-	}
-
-	info->manufacture = (char *) kzalloc(32, GFP_KERNEL);
-	if (!info->manufacture) {
-		kfree(info->version);
-		kfree(info);
-		return -ENOMEM;
-	}
-
-	sprintf(ddr_manufacture, "%s|%dG", ddr_manufacture, (rk_size[0] +  rk_size[1]) * DRAMC_SIZE_UNIT);
-	memcpy(info->manufacture, ddr_manufacture, strlen(ddr_manufacture) > 31?31:strlen(ddr_manufacture));
-	pr_err("device_info.vendor_size= %s\n", ddr_manufacture);
-	return register_devinfo("ddr", info);
-}
-#endif
 
 #if !(defined(CONFIG_MTK_PLATFORM) || defined(CONFIG_OPLUS_DEVICE_INFO_MTK_PLATFORM))
 static int __attribute__((__unused__)) init_ddr_type(struct device_info *dev_info)
@@ -1115,72 +963,6 @@ static int __attribute__((__unused__)) init_ddr_type(struct device_info *dev_inf
 	}
 
 	return register_devinfo("ddr_type", info);
-}
-
-static int __attribute__((__unused__)) init_ddr_vendor_size(struct device_info *dev_info)
-{
-	uint32_t ddr_type = DDR_TYPE_LPDDR5;
-	struct manufacture_info *info = NULL;
-	char ddr_manufacture[64];
-	char ddr_size[64];
-	int i, j;
-
-	info = (struct manufacture_info *) kzalloc(sizeof(*info), GFP_KERNEL);
-	if (!info) {
-		return -ENOMEM;
-	}
-
-	ddr_type = of_fdt_get_ddrtype();
-
-	if (ddr_type == DDR_TYPE_LPDDR5 || ddr_type == DDR_TYPE_LPDDR5X) {
-		info->version = "DDR5";
-	} else if (ddr_type == DDR_TYPE_LPDDR4 || ddr_type == DDR_TYPE_LPDDR4X) {
-		info->version = "DDR4";
-	} else {
-		info->version = "unknown";
-	}
-
-	if (strlen(ddr_vendor_size) != 0) {
-		for (i=0; ddr_vendor_size[i] != '|'; i++) {
-			ddr_manufacture[i] = ddr_vendor_size[i];
-		}
-
-		i++;
-		for(j=0; ddr_vendor_size[i] != '\0'; j++) {
-			ddr_size[j] = ddr_vendor_size[i];
-			i++;
-		}
-
-	if (strcmp(ddr_manufacture, "1") == 0) {
-			memset(ddr_manufacture, 0, sizeof(ddr_manufacture));
-			strcpy(ddr_manufacture, "Samsung");
-		} else if (strcmp(ddr_manufacture, "6") == 0) {
-			memset(ddr_manufacture, 0, sizeof(ddr_manufacture));
-			strcpy(ddr_manufacture, "Hynix");
-		} else if (strcmp(ddr_manufacture, "19") == 0) {
-			memset(ddr_manufacture, 0, sizeof(ddr_manufacture));
-			strcpy(ddr_manufacture, "Cxmt");
-		} else if (strcmp(ddr_manufacture, "255") == 0) {
-			memset(ddr_manufacture, 0, sizeof(ddr_manufacture));
-			strcpy(ddr_manufacture, "Micron");
-		} else {
-			memset(ddr_manufacture, 0, sizeof(ddr_manufacture));
-			strcpy(ddr_manufacture, "Unknown|");
-		}
-
-		info->manufacture = (char *) kzalloc(32, GFP_KERNEL);
-		if (!info->manufacture) {
-			kfree(info->version);
-			kfree(info);
-			return -ENOMEM;
-		}
-
-		sprintf(ddr_manufacture, "%s|%sG", ddr_manufacture, ddr_size);
-		memcpy(info->manufacture, ddr_manufacture, strlen(ddr_manufacture) > 31?31:strlen(ddr_manufacture));
-		pr_err("device_info.vendor_size= %s\n", ddr_manufacture);
-	}
-
-	return register_devinfo("ddr", info);
 }
 #endif
 
@@ -1214,12 +996,8 @@ devinfo_probe(struct platform_device *pdev)
 #if !(defined(CONFIG_MTK_PLATFORM) || defined(CONFIG_OPLUS_DEVICE_INFO_MTK_PLATFORM))
 	/*register oplus special node*/
 	init_ddr_type(dev_info);
-	init_ddr_vendor_size(dev_info);
 #endif
-#if (defined(CONFIG_MTK_PLATFORM) || defined(CONFIG_OPLUS_DEVICE_INFO_MTK_PLATFORM))
-	/*register oplus special node*/
-	init_ddr_vendor_size(dev_info);
-#endif
+
 	return 0;
 }
 

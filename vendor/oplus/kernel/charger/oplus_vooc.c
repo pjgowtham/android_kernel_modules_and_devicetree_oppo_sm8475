@@ -3252,11 +3252,6 @@ bool oplus_vooc_get_reset_adapter_st(void)
 
 int oplus_vooc_get_abnormal_adapter_current_cnt(void)
 {
-	if (oplus_chg_get_voocphy_support() == AP_SINGLE_CP_VOOCPHY ||
-	    oplus_chg_get_voocphy_support() == AP_DUAL_CP_VOOCPHY) {
-		return oplus_voocphy_get_max_abnormal_cnt();
-	}
-
 	if (!g_vooc_chip) {
 		return -EINVAL;
 	}

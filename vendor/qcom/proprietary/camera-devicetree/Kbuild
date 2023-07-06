@@ -20,8 +20,6 @@ dtbo-$(CONFIG_ARCH_WAIPIO) += oplus/unicorn-21166-camera-waipio-overlay.dtbo
 dtbo-$(CONFIG_ARCH_WAIPIO) += oplus/jennie_21605-camera-waipio-overlay.dtbo
 dtbo-$(CONFIG_ARCH_WAIPIO) += oplus/udon_22803-camera-waipio-overlay.dtbo
 dtbo-$(CONFIG_ARCH_WAIPIO) += oplus/jennie_21606-camera-waipio-overlay.dtbo
-dtbo-$(CONFIG_ARCH_WAIPIO) += oplus/monroe_22091-camera-waipio-overlay.dtbo
-dtbo-$(CONFIG_ARCH_WAIPIO) += oplus/monroe_22091-camera-waipio-overlay-preT0.dtbo
 
 dtbo-$(CONFIG_ARCH_DIWALI)		+= diwali-camera.dtbo
 dtbo-$(CONFIG_ARCH_DIWALI) += oplus/wuyi-21125-camera-diwali-overlay.dtbo
@@ -38,8 +36,6 @@ dtbo-$(CONFIG_ARCH_WAIPIO) += oplus/whiteswan_22001-camera-waipio-overlay.dtbo
 dtbo-$(CONFIG_ARCH_CAPE) += oplus/whiteswan_22001-camera-cape-overlay.dtbo
 dtbo-$(CONFIG_ARCH_WAIPIO) += oplus/lvzhou_22015-camera-waipio-overlay.dtbo
 dtbo-$(CONFIG_ARCH_CAPE) += oplus/lvzhou_22015-camera-cape-overlay.dtbo
-dtbo-$(CONFIG_ARCH_CAPE) += oplus/monroe_22091-camera-cape-overlay.dtbo
-dtbo-$(CONFIG_ARCH_CAPE) += oplus/monroe_22091-camera-cape-overlay-preT0.dtbo
 
 dtbo-$(CONFIG_ARCH_CAPE) += ukee-camera.dtbo
 dtbo-$(CONFIG_ARCH_CAPE) += oplus/senna_22623-camera-ukee-overlay.dtbo

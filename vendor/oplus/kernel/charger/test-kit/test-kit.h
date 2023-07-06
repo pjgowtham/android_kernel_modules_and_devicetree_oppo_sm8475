@@ -37,7 +37,6 @@ struct test_kit_typec_port_info {
 	int case_num;
 	int status;
 	int situation;
-	void *private_data;
 };
 
 struct test_kit_soc_gpio_info {

@@ -422,7 +422,6 @@ static int pd_tcp_notifier_call(struct notifier_block *nb,
 	enum typec_pwr_opmode opmode = TYPEC_PWR_MODE_USB;
 	uint32_t partner_vdos[VDO_MAX_NR];
 	union power_supply_propval val = {.intval = 0};
-	static bool otg_enable = false;
 	struct oplus_chg_chip *g_oplus_chip = oplus_chg_get_chg_struct();
 
 	switch (event) {
@@ -455,11 +454,8 @@ static int pd_tcp_notifier_call(struct notifier_block *nb,
 		/* enable/disable OTG power output */
 		if (noti->vbus_state.mv) {
 			oplus_otg_enable_by_buckboost();
-			otg_enable = true;
 		} else {
-			if (otg_enable)
-				oplus_otg_disable_by_buckboost();
-			otg_enable = false;
+			oplus_otg_disable_by_buckboost();
 		}
 		break;
 	case TCP_NOTIFY_TYPEC_STATE:
@@ -645,10 +641,7 @@ static int pd_tcp_notifier_call(struct notifier_block *nb,
 		if (noti->swap_state.new_role == PD_ROLE_SINK) {
 			dev_info(rpmd->dev, "%s swap power role to sink\n",
 					    __func__);
-			if (g_oplus_chip && g_oplus_chip->chg_ops &&
-			    g_oplus_chip->chg_ops->set_prswap)
-				g_oplus_chip->chg_ops->set_prswap(true);
-			/*oplus_set_prswap(true);*/
+			oplus_set_prswap(true);
 			/*
 			 * report charger plug-in without charger type detection
 			 * to not interfering with USB2.0 communication

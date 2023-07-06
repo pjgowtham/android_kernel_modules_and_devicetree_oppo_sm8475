@@ -6151,7 +6151,7 @@ int smblib_set_prop_pd_active(struct smb_charger *chg,
         }
     }
 #endif
-
+	power_supply_changed(chg->usb_psy);
 	return rc;
 }
 

@@ -72,7 +72,6 @@
 #define BC_PD_SOFT_RESET				0x58
 #define BC_CHG_STATUS_GET				0x59
 #define BC_CHG_STATUS_SET				0x60
-#define BC_ABNORMAL_PD_SVOOC_ADAPTER			0x67
 #endif
 
 #ifdef OPLUS_FEATURE_CHG_BASIC
@@ -353,7 +352,6 @@ struct psy_state {
 struct oplus_custom_gpio_pinctrl {
 	int vchg_trig_gpio;
 	int ccdetect_gpio;
-	int mcu_en_gpio;
 	struct mutex pinctrl_mutex;
 	struct pinctrl *vchg_trig_pinctrl;
 	struct pinctrl_state *vchg_trig_default;
@@ -364,9 +362,6 @@ struct oplus_custom_gpio_pinctrl {
 	struct pinctrl_state	*usbtemp_l_gpio_default;
 	struct pinctrl			*usbtemp_r_gpio_pinctrl;
 	struct pinctrl_state	*usbtemp_r_gpio_default;
-	struct pinctrl			*mcu_en_pinctrl;
-	struct pinctrl_state *mcu_en_active;
-	struct pinctrl_state *mcu_en_sleep;
 };
 #endif
 
@@ -441,7 +436,6 @@ struct battery_chg_dev {
 #endif
 #ifdef OPLUS_FEATURE_CHG_BASIC
 	int vchg_trig_irq;
-	struct delayed_work mcu_en_init_work;
 	struct delayed_work vchg_trig_work;
 	struct delayed_work wait_wired_charge_on;
 	struct delayed_work wait_wired_charge_off;

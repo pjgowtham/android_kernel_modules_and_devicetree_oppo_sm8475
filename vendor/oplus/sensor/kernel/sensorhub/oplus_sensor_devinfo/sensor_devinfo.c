@@ -91,8 +91,6 @@ enum {
 	ACC_GYRO_NAME,
 	GOLD_REAR_SPECTRUM_FACTOR_512GAIN,
 	GOLD_REAR_SPECTRUM_FACTOR_2048GAIN,
-	SUPPORT_PANEL,
-	FOLD_HALL_LIMIT,
 };
 
 #define ID_REAR_ALS     97
@@ -113,7 +111,6 @@ static struct oplus_als_cali_data *gdata = NULL;
 static struct proc_dir_entry *sensor_proc_dir = NULL;
 static int gyro_cali_version = 1;
 static int cct_type = CCT_NORMAL;
-static int support_panel = 0;
 static int g_reg_address = 0;
 static int g_reg_value = 0;
 static char acc_cali_range[16] = {0};
@@ -127,13 +124,12 @@ static char gold_cct_factor[35] = {0};
 static uint32_t gold_als_factor = 1001;
 static uint32_t gold_rear_als_factor = 1001;
 static uint32_t lb_bri_max = 1500;
-static char gold_rear_spectrum_3k[84] = {0};
-static char gold_rear_spectrum_6k[84] = {0};
+static char gold_rear_spectrum_3k[70] = {0};
+static char gold_rear_spectrum_6k[70] = {0};
 static int gold_cct_channels = 4;
 static char *g_acc_gyro_name = NULL;
 static char g_gold_rear_spectrum_factor_512gain[70] = {0};
 static char g_gold_rear_spectrum_factor_2048gain[70] = {0};
-static char g_fold_hall_limit[70] = {0};
 atomic_t utc_suspend;
 
 struct als_info g_als_info;
@@ -300,76 +296,6 @@ static void get_accgyro_cali_version(void)
 	}
 }
 
-static void choose_special_gold_cct_value(int support_panel)
-{
-	int ret = 0;
-	uint32_t gold_cct[6] = {0};/*r,g,b,c,w,f*/
-
-	if (support_panel == BOE) {
-		/*get boe 3000k gold ch*/
-		ret = oplus_get_dts_feature(parent_node, "als_panel_boe", "gold_cct_3k", gold_cct);
-		if (ret < 0) {
-			DEVINFO_LOG("gold_cct_3k fail\n");
-			return;
-		} else {
-			DEVINFO_LOG("gold_cct_3k [%u, %u, %u, %u, %u, %u]",
-				gold_cct[0], gold_cct[1], gold_cct[2],
-				gold_cct[3], gold_cct[4], gold_cct[5]);
-
-			sprintf(gold_cct_3k, "%u %u %u %u %u %u",
-				 gold_cct[0], gold_cct[1], gold_cct[2],
-				 gold_cct[3], gold_cct[4], gold_cct[5]);
-		}
-
-		/*get boe 6000k gold ch*/
-		memset(gold_cct, 0, sizeof(gold_cct));
-		ret = oplus_get_dts_feature(parent_node, "als_panel_boe", "gold_cct_6k", gold_cct);
-		if (ret < 0) {
-			DEVINFO_LOG("gold_cct_6k fail\n");
-			return;
-		} else {
-			DEVINFO_LOG("gold_cct_6k [%u, %u, %u, %u, %u, %u]",
-				gold_cct[0], gold_cct[1], gold_cct[2],
-				gold_cct[3], gold_cct[4], gold_cct[5]);
-
-			sprintf(gold_cct_6k, "%u %u %u %u %u %u",
-				 gold_cct[0], gold_cct[1], gold_cct[2],
-				 gold_cct[3], gold_cct[4], gold_cct[5]);
-		}
-	} else if (support_panel == TIANMA) {
-		/*get tianma 3000k gold ch*/
-		ret = oplus_get_dts_feature(parent_node, "als_panel_tm", "gold_cct_3k", gold_cct);
-		if (ret < 0) {
-			DEVINFO_LOG("gold_cct_3k fail\n");
-			return;
-		} else {
-			DEVINFO_LOG("gold_cct_3k [%u, %u, %u, %u, %u, %u]",
-				gold_cct[0], gold_cct[1], gold_cct[2],
-				gold_cct[3], gold_cct[4], gold_cct[5]);
-
-			sprintf(gold_cct_3k, "%u %u %u %u %u %u",
-				 gold_cct[0], gold_cct[1], gold_cct[2],
-				 gold_cct[3], gold_cct[4], gold_cct[5]);
-		}
-
-		/*get tianma 6000k gold ch*/
-		memset(gold_cct, 0, sizeof(gold_cct));
-		ret = oplus_get_dts_feature(parent_node, "als_panel_tm", "gold_cct_6k", gold_cct);
-		if (ret < 0) {
-			DEVINFO_LOG("gold_cct_6k fail\n");
-			return;
-		} else {
-			DEVINFO_LOG("gold_cct_6k [%u, %u, %u, %u, %u, %u]",
-				gold_cct[0], gold_cct[1], gold_cct[2],
-				gold_cct[3], gold_cct[4], gold_cct[5]);
-
-			sprintf(gold_cct_6k, "%u %u %u %u %u %u",
-				 gold_cct[0], gold_cct[1], gold_cct[2],
-				 gold_cct[3], gold_cct[4], gold_cct[5]);
-		}
-	}
-}
-
 static void get_front_cct_feature(void)
 {
 	int ret = 0;
@@ -381,45 +307,35 @@ static void get_front_cct_feature(void)
 	}
 	DEVINFO_LOG("cct_type = %d", cct_type);
 
-	ret = oplus_get_dts_feature(parent_node, "light", "support_panel", &support_panel);
+	/*get 3000k gold ch*/
+	ret = oplus_get_dts_feature(parent_node, "light", "gold_cct_3k", gold_cct);
 	if (ret < 0) {
-		support_panel = 0; /* not support 2 panel */
-	}
-	DEVINFO_LOG("support_panel = %d", support_panel);
-
-	if (support_panel > 0) {
-		choose_special_gold_cct_value(support_panel);
+		DEVINFO_LOG("gold_cct_3k fail\n");
+		return;
 	} else {
-		/*get 3000k gold ch*/
-		ret = oplus_get_dts_feature(parent_node, "light", "gold_cct_3k", gold_cct);
-		if (ret < 0) {
-			DEVINFO_LOG("gold_cct_3k fail\n");
-			return;
-		} else {
-			DEVINFO_LOG("gold_cct_3k [%u, %u, %u, %u, %u, %u]",
-				gold_cct[0], gold_cct[1], gold_cct[2],
-				gold_cct[3], gold_cct[4], gold_cct[5]);
+		DEVINFO_LOG("gold_cct_3k [%u, %u, %u, %u, %u, %u]",
+			gold_cct[0], gold_cct[1], gold_cct[2],
+			gold_cct[3], gold_cct[4], gold_cct[5]);
 
-			sprintf(gold_cct_3k, "%u %u %u %u %u %u",
-				 gold_cct[0], gold_cct[1], gold_cct[2],
-				 gold_cct[3], gold_cct[4], gold_cct[5]);
-		}
+		sprintf(gold_cct_3k, "%u %u %u %u %u %u",
+			 gold_cct[0], gold_cct[1], gold_cct[2],
+			 gold_cct[3], gold_cct[4], gold_cct[5]);
+	}
 
-		/*get 6000k gold ch*/
-		memset(gold_cct, 0, sizeof(gold_cct));
-		ret = oplus_get_dts_feature(parent_node, "light", "gold_cct_6k", gold_cct);
-		if (ret < 0) {
-			DEVINFO_LOG("gold_cct_6k fail\n");
-			return;
-		} else {
-			DEVINFO_LOG("gold_cct_6k [%u, %u, %u, %u, %u, %u]",
-				gold_cct[0], gold_cct[1], gold_cct[2],
-				gold_cct[3], gold_cct[4], gold_cct[5]);
+	/*get 6000k gold ch*/
+	memset(gold_cct, 0, sizeof(gold_cct));
+	ret = oplus_get_dts_feature(parent_node, "light", "gold_cct_6k", gold_cct);
+	if (ret < 0) {
+		DEVINFO_LOG("gold_cct_6k fail\n");
+		return;
+	} else {
+		DEVINFO_LOG("gold_cct_6k [%u, %u, %u, %u, %u, %u]",
+			gold_cct[0], gold_cct[1], gold_cct[2],
+			gold_cct[3], gold_cct[4], gold_cct[5]);
 
-			sprintf(gold_cct_6k, "%u %u %u %u %u %u",
-				 gold_cct[0], gold_cct[1], gold_cct[2],
-				 gold_cct[3], gold_cct[4], gold_cct[5]);
-		}
+		sprintf(gold_cct_6k, "%u %u %u %u %u %u",
+			 gold_cct[0], gold_cct[1], gold_cct[2],
+			 gold_cct[3], gold_cct[4], gold_cct[5]);
 	}
 
 	/* get gold_cct_factor */
@@ -688,31 +604,6 @@ static void get_gold_rear_spectrum(void)
 	}
 }
 
-static void get_fold_hall_limit(void)
-{
-	int ret = 0;
-	uint32_t fold_hall_limit[10] = {0};
-
-	ret = oplus_get_dts_feature(parent_node, "hall", "fold_hall_limit", fold_hall_limit);
-	if (ret < 0) {
-		DEVINFO_LOG("fold_hall_limit fail\n");
-		return;
-	} else {
-		DEVINFO_LOG("fold_hall_limit [%u, %u], [%u, %u], [%u, %u], [%u, %u], [%u, %u]\n",
-			fold_hall_limit[0], fold_hall_limit[1],
-			fold_hall_limit[2], fold_hall_limit[3],
-			fold_hall_limit[4], fold_hall_limit[5],
-			fold_hall_limit[6], fold_hall_limit[7],
-			fold_hall_limit[8], fold_hall_limit[9]);
-
-		sprintf(g_fold_hall_limit, "%u %u %u %u %u %u %u %u %u %u",
-			fold_hall_limit[0], fold_hall_limit[1],
-			fold_hall_limit[2], fold_hall_limit[3],
-			fold_hall_limit[4], fold_hall_limit[5],
-			fold_hall_limit[6], fold_hall_limit[7],
-			fold_hall_limit[8], fold_hall_limit[9]);
-	}
-}
 static void get_gold_rear_cct(void)
 {
 	int ret = 0;
@@ -782,7 +673,6 @@ static void sensor_devinfo_work(struct work_struct *dwork)
 	get_front_cct_feature();
 	get_gold_rear_cct();
 	get_gold_rear_spectrum();
-	get_fold_hall_limit();
 
 
 	DEVINFO_LOG("success \n");
@@ -1015,12 +905,6 @@ static int sensor_feature_read_func(struct seq_file *s, void *v)
 		DEVINFO_LOG("gold_rear_spectrum_factor_2048gain = %s \n", g_gold_rear_spectrum_factor_2048gain);
 		seq_printf(s, "%s", g_gold_rear_spectrum_factor_2048gain);
 		break;
-	case SUPPORT_PANEL:
-		seq_printf(s, "%d", support_panel);
-	case FOLD_HALL_LIMIT:
-		DEVINFO_LOG("fold_hall_limit = %s \n", g_fold_hall_limit);
-		seq_printf(s, "%s", g_fold_hall_limit);
-		break;
 	default:
 		seq_printf(s, "not support chendai\n");
 	}
@@ -1106,12 +990,6 @@ static ssize_t sensor_feature_write(struct file *filp, const char *ubuf, size_t 
 		case REAR_SPECTRUM_FACTORY_2048_GAIN:
 			ret = si->send_factory_mode(SENSOR_TYPE_REAR_SPECTRAL, 2, &result);
 			break;
-		case REAR_PS_FACTORY_MODE:
-			ret = si->send_factory_mode(SENSOR_TYPE_REAR_PROXIMITY, 1, &result);
-			break;
-		case REAR_PS_NORMAL_MODE:
-			ret = si->send_factory_mode(SENSOR_TYPE_REAR_PROXIMITY, 0, &result);
-			break;
 		default:
 			DEVINFO_LOG("ivalid sensor mode\n");
 		}
@@ -1180,8 +1058,6 @@ static struct proc_node sensor_feature_file[] = {
 	{"gold_rear_spectrum_factor_512gain", GOLD_REAR_SPECTRUM_FACTOR_512GAIN},
 	{"gold_rear_spectrum_factor_2048gain", GOLD_REAR_SPECTRUM_FACTOR_2048GAIN},
 	{"gold_cct_factor", GOLD_CCT_FACTOR},
-	{"support_panel", SUPPORT_PANEL},
-	{"fold_hall_limit", FOLD_HALL_LIMIT},
 };
 
 static int oplus_sensor_feature_init()

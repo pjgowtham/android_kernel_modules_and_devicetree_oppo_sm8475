@@ -895,8 +895,7 @@ static int rk826_fw_write_00_code(struct rk826_chip *chip, const u8 *fw_buf,
 	req.timeout = 0;
 	req.fw_crc = js_hash(fw_buf, fw_size); /* for crc hash */
 	req.header_crc = js_hash((const u8 *)&req, sizeof(req) - 4);
-	ret = WriteSram(chip, (const u8 *)&req, sizeof(req));
-	if (ret != 0) {
+	if ((ret = WriteSram(chip, (const u8 *)&req, sizeof(req))) != 0) {
 		chg_err("failed to send request!err=%d\n", ret);
 		goto update_fw_err;
 	}
@@ -915,8 +914,7 @@ static int rk826_fw_write_00_code(struct rk826_chip *chip, const u8 *fw_buf,
 	}
 
 	/* send fw */
-	ret = Download_00_code(chip);
-	if (ret != 0) {
+	if ((ret = Download_00_code(chip)) != 0) {
 		chg_err("failed to send firmware");
 		goto update_fw_err;
 	}
@@ -1015,8 +1013,7 @@ static int rk826_fw_write_ff_code(struct rk826_chip *chip, const u8 *fw_buf,
 	req.timeout = 0;
 	req.fw_crc = js_hash(fw_buf, fw_size); /* for crc hash */
 	req.header_crc = js_hash((const u8 *)&req, sizeof(req) - 4);
-	ret = WriteSram(chip, (const u8 *)&req, sizeof(req));
-	if (ret != 0) {
+	if ((ret = WriteSram(chip, (const u8 *)&req, sizeof(req))) != 0) {
 		chg_err("failed to send request!err=%d\n", ret);
 		goto update_fw_err;
 	}
@@ -1035,8 +1032,7 @@ static int rk826_fw_write_ff_code(struct rk826_chip *chip, const u8 *fw_buf,
 	}
 
 	/* send fw */
-	ret = Download_ff_code(chip);
-	if (ret != 0) {
+	if ((ret = Download_ff_code(chip)) != 0) {
 		chg_err("failed to send firmware");
 		goto update_fw_err;
 	}
@@ -1169,8 +1165,7 @@ static int rk826_fw_update(struct rk826_chip *chip, const u8 *fw_buf,
 	req.timeout = 0;
 	req.fw_crc = js_hash(fw_buf, req.length);
 	req.header_crc = js_hash((const u8 *)&req, sizeof(req) - 4);
-	ret = WriteSram(chip, (const u8 *)&req, sizeof(req));
-	if (ret != 0) {
+	if ((ret = WriteSram(chip, (const u8 *)&req, sizeof(req))) != 0) {
 		chg_err("failed to send request!err=%d\n", ret);
 		goto update_fw_err;
 	}
@@ -1189,8 +1184,7 @@ static int rk826_fw_update(struct rk826_chip *chip, const u8 *fw_buf,
 	}
 
 	/* send fw */
-	ret = DownloadFirmware(chip, fw_buf, fw_size);
-	if (ret != 0) {
+	if ((ret = DownloadFirmware(chip, fw_buf, fw_size)) != 0) {
 		chg_err("failed to send firmware");
 		goto update_fw_err;
 	}

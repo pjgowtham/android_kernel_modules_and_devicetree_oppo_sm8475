@@ -8611,9 +8611,9 @@ int dsi_display_prepare(struct dsi_display *display)
 		return -EINVAL;
 	}
 
-	if(is_project(22803) || is_project(22881) || is_project(22091) || is_project(22227)){
+	if(is_project(22803) || is_project(22881)){
 		/*get io-channels to get panel temperature*/
-		oplus_display_register_ntc_channel(display);
+		oplus_display_register_ntc_channel(&pdev->dev);
 	}
 #endif /* OPLUS_FEATURE_DISPLAY */
 
@@ -8739,8 +8739,8 @@ int dsi_display_prepare(struct dsi_display *display)
 			}
 		}
 	}
-
 	goto error;
+
 error_ctrl_link_off:
 	(void)dsi_display_clk_ctrl(display->dsi_clk_handle,
 			DSI_LINK_CLK, DSI_CLK_OFF);
@@ -9167,9 +9167,11 @@ int dsi_display_enable(struct dsi_display *display)
 	}
 
 #ifdef OPLUS_FEATURE_DISPLAY
-	mutex_lock(&display->panel->panel_lock);
-	oplus_display_temp_compensation_set(display->panel, true);
-	mutex_unlock(&display->panel->panel_lock);
+	if (!strcmp(display->panel->oplus_priv.vendor_name, "NT37705")) {
+		mutex_lock(&display->panel->panel_lock);
+		oplus_display_temp_compensation_set(display->panel, true);
+		mutex_unlock(&display->panel->panel_lock);
+	}
 #endif
 
 	if (display->config.panel_mode == DSI_OP_VIDEO_MODE) {
@@ -9202,8 +9204,9 @@ error:
 	mutex_unlock(&display->display_lock);
 
 #ifdef OPLUS_FEATURE_DISPLAY
-	oplus_display_change_compensation_params_ref_reg(display);
-	oplus_display_temp_check(display);
+	if (!strcmp(display->panel->oplus_priv.vendor_name, "NT37705")) {
+		oplus_display_temp_check(display);
+	}
 
 	if (oplus_adfr_is_support()) {
 		dsi_display_qsync_restore(display);

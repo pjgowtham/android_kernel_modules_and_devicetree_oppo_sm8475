@@ -200,10 +200,8 @@ static void mt6375_vcoon_rvp_work(struct work_struct *work)
 	vbus_err = mt6375_vbus_is_error(chip);
 	vcoon_en = mt6375_vcoon_is_open(chip);
 	rc = mt6375_get_cc_status(chip, &cc1, &cc2);
-	if (rc < 0) {
-		cc1 = rc;
-		cc2 = rc;
-	}
+	if (rc < 0)
+		cc1 = cc2 = rc;
 
 	oplus_chg_ic_creat_err_msg(
 		chip->ic_dev, OPLUS_IC_ERR_PLAT_PMIC, PLAT_PMIC_ERR_VCONN_RVP,
@@ -222,10 +220,8 @@ static void mt6375_vcoon_ocp_work(struct work_struct *work)
 	vbus_err = mt6375_vbus_is_error(chip);
 	vcoon_en = mt6375_vcoon_is_open(chip);
 	rc = mt6375_get_cc_status(chip, &cc1, &cc2);
-	if (rc < 0) {
-		cc1 = rc;
-		cc2 = rc;
-	}
+	if (rc < 0)
+		cc1 = cc2 = rc;
 
 	oplus_chg_ic_creat_err_msg(
 		chip->ic_dev, OPLUS_IC_ERR_PLAT_PMIC, PLAT_PMIC_ERR_VCONN_OCP,
@@ -244,10 +240,8 @@ static void mt6375_vcoon_ovp_work(struct work_struct *work)
 	vbus_err = mt6375_vbus_is_error(chip);
 	vcoon_en = mt6375_vcoon_is_open(chip);
 	rc = mt6375_get_cc_status(chip, &cc1, &cc2);
-	if (rc < 0) {
-		cc1 = rc;
-		cc2 = rc;
-	}
+	if (rc < 0)
+		cc1 = cc2 = rc;
 
 	oplus_chg_ic_creat_err_msg(
 		chip->ic_dev, OPLUS_IC_ERR_PLAT_PMIC, PLAT_PMIC_ERR_VCONN_OVP,
@@ -266,10 +260,8 @@ static void mt6375_vcoon_uvp_work(struct work_struct *work)
 	vbus_err = mt6375_vbus_is_error(chip);
 	vcoon_en = mt6375_vcoon_is_open(chip);
 	rc = mt6375_get_cc_status(chip, &cc1, &cc2);
-	if (rc < 0) {
-		cc1 = rc;
-		cc2 = rc;
-	}
+	if (rc < 0)
+		cc1 = cc2 = rc;
 
 	oplus_chg_ic_creat_err_msg(
 		chip->ic_dev, OPLUS_IC_ERR_PLAT_PMIC, PLAT_PMIC_ERR_VCONN_UVP,
@@ -299,10 +291,8 @@ static void mt6375_vcoon_close_work(struct work_struct *work)
 		chip->vconn_en_time = -EINVAL;
 	}
 	rc = mt6375_get_cc_status(chip, &cc1, &cc2);
-	if (rc < 0) {
-		cc1 = rc;
-		cc2 = rc;
-	}
+	if (rc < 0)
+		cc1 = cc2 = rc;
 
 	oplus_chg_ic_creat_err_msg(chip->ic_dev, OPLUS_IC_ERR_PLAT_PMIC,
 				   PLAT_PMIC_ERR_VCONN_CLOSE,
@@ -344,10 +334,8 @@ static void mt6375_power_status_change_work(struct work_struct *work)
 
 	vcoon_en = mt6375_vcoon_is_open(chip);
 	rc = mt6375_get_cc_status(chip, &cc1, &cc2);
-	if (rc < 0) {
-		cc1 = rc;
-		cc2 = rc;
-	}
+	if (rc < 0)
+		cc1 = cc2 = rc;
 
 	oplus_chg_ic_creat_err_msg(
 		chip->ic_dev, OPLUS_IC_ERR_PLAT_PMIC,

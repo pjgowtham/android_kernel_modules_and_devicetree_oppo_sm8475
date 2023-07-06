@@ -25,7 +25,6 @@ static struct task_struct *block_thread = NULL;
 static bool timer_started = false;
 static int systemserver_pid = -1;
 static bool g_system_boot_completed = false;
-static struct mutex record_stage_mutex;
 
 int get_systemserver_pid(void)
 {
@@ -161,7 +160,6 @@ ssize_t get_last_pwkey_stage(char *buf)
 	if (stage_start != flow_index) {
 		int last_index = (flow_index == 0) ? (FLOW_SIZE - 1) : (flow_index - 1);
 		snprintf(buf, 64, (last_index * STAGE_BRIEF_SIZE + flow_buf));
-		POWER_MONITOR_DEBUG_PRINTK("get_last_pwkey_stage buf:%s\n", buf);
 	} else {
 		sprintf(buf, "");
 	}
@@ -249,9 +247,7 @@ static ssize_t theia_powerkey_report_proc_write(struct file *file,
 		return count;
 	}
 
-	mutex_lock(&record_stage_mutex);
 	record_stage(buffer);
-	mutex_unlock(&record_stage_mutex);
 	return count;
 }
 
@@ -402,8 +398,6 @@ int __init powerkey_monitor_init(void)
 {
 	POWER_MONITOR_DEBUG_PRINTK("%s called\n", __func__);
 
-	mutex_init(&record_stage_mutex);
-
 	flow_buf = vmalloc(STAGE_TOTAL_SIZE);
 	if (!flow_buf) {
 		POWER_MONITOR_DEBUG_PRINTK("vmalloc flow_buf failed\n");
@@ -434,8 +428,6 @@ int __init powerkey_monitor_init(void)
 void __exit powerkey_monitor_exit(void)
 {
 	POWER_MONITOR_DEBUG_PRINTK("%s called\n", __func__);
-
-	mutex_destroy(&record_stage_mutex);
 
 	remove_proc_entry(PROC_PWK_MONITOR_PARAM, NULL);
 	remove_proc_entry(PROC_PWK_REPORT, NULL);

@@ -20,7 +20,6 @@ enum vooc_topic_item {
 	VOOC_ITEM_GET_BCC_STOP_CURR,
 	VOOC_ITEM_GET_BCC_TEMP_RANGE,
 	VOOC_ITEM_GET_BCC_SVOOC_TYPE,
-	VOOC_ITEM_VOOCPHY_BCC_GET_FASTCHG_ING,
 	VOOC_ITEM_GET_AFI_CONDITION,
 	VOOC_ITEM_BREAK_CODE,
 };
@@ -50,12 +49,6 @@ enum {
 	BCC_SOC_75_TO_85,
 	BCC_SOC_85_TO_90,
 	BCC_SOC_MAX,
-};
-
-enum vooc_curr_table_type {
-	VOOC_CURR_TABLE_OLD_1_0 = 0,
-	VOOC_CURR_TABLE_1_0,
-	VOOC_CURR_TABLE_2_0
 };
 
 /*
@@ -113,7 +106,6 @@ enum oplus_fast_chg_status {
 	CHARGER_STATUS_FAST_DUMMY,
 	CHARGER_STATUS_SWITCH_TEMP_RANGE,
 	CHARGER_STATUS_TIMEOUT_RETRY,
-	CHARGER_STATUS_CURR_LIMIT,
 };
 
 enum oplus_vooc_limit_level {
@@ -238,6 +230,5 @@ void oplus_api_vooc_turn_off_fastchg(struct oplus_mms *topic);
 int oplus_vooc_current_to_level(struct oplus_mms *topic, int curr);
 int oplus_vooc_level_to_current(struct oplus_mms *topic, int level);
 int oplus_vooc_get_batt_curve_current(struct oplus_mms *topic);
-bool oplus_vooc_get_bcc_support_for_smartchg(struct oplus_mms *topic);
 
 #endif /* __OPLUS_CHG_VOOC_H__ */

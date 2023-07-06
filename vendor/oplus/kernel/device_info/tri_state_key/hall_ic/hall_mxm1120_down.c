@@ -95,9 +95,6 @@ static int m1120_i2c_read_block(struct m1120_data_t *m1120_data, u8 addr, u8 *da
 	int err = 0;
 	struct i2c_client *client = NULL;
 	struct i2c_msg msgs[2] = {{0}, {0}};
-#if defined(CONFIG_OPLUS_FEATURE_FEEDBACK) || defined(CONFIG_OPLUS_FEATURE_FEEDBACK_MODULE)
-	char payload[1024] = {0x00};
-#endif
 
 	if (!m1120_data) {
 		TRI_KEY_ERR("m1120_data == NULL\n");
@@ -128,12 +125,6 @@ static int m1120_i2c_read_block(struct m1120_data_t *m1120_data, u8 addr, u8 *da
 
 	if (err < 0) {
 		TRI_KEY_ERR("i2c_transfer error: (%d %p %d) %d\n", addr, data, len, err);
-#if defined(CONFIG_OPLUS_FEATURE_FEEDBACK) || defined(CONFIG_OPLUS_FEATURE_FEEDBACK_MODULE)
-		scnprintf(payload, sizeof(payload),
-				   "NULL$$EventField@@DownHallRead$$FieldData@@Err%d$$detailData@@%d[%*ph]%d",
-				   err, addr, len, data, len);
-		oplus_kevent_fb(FB_TRI_STATE_KEY, TRIKEY_FB_BUS_TRANS_TYPE, payload);
-#endif
 		err = -EIO;
 	} else  {
 		err = 0;
@@ -149,9 +140,6 @@ static int m1120_i2c_write_block(struct m1120_data_t *m1120_data, u8 addr, u8 *d
 	int idx = 0;
 	int num = 0;
 	char buf[M1120_I2C_BUF_SIZE] = {0};
-#if defined(CONFIG_OPLUS_FEATURE_FEEDBACK) || defined(CONFIG_OPLUS_FEATURE_FEEDBACK_MODULE)
-	char payload[1024] = {0x00};
-#endif
 	struct i2c_client *client = NULL;
 
 	if (!m1120_data) {
@@ -175,15 +163,8 @@ static int m1120_i2c_write_block(struct m1120_data_t *m1120_data, u8 addr, u8 *d
 		buf[num++] = data[idx];
 
 	err = i2c_master_send(client, buf, num);
-	if (err < 0) {
+	if (err < 0)
 		TRI_KEY_ERR("send command error!! %d\n", err);
-#if defined(CONFIG_OPLUS_FEATURE_FEEDBACK) || defined(CONFIG_OPLUS_FEATURE_FEEDBACK_MODULE)
-		scnprintf(payload, sizeof(payload),
-				   "NULL$$EventField@@DownHallWrite$$FieldData@@Err%d$$detailData@@%d[%*ph]%d",
-				   err, addr, len, data, len);
-		oplus_kevent_fb(FB_TRI_STATE_KEY, TRIKEY_FB_BUS_TRANS_TYPE, payload);
-#endif
-	}
 
 	/*store reg written*/
 	if (len == 1) {

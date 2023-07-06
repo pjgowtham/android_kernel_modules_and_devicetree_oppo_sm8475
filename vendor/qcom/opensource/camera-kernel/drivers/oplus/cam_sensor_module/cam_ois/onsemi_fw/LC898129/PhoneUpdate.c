@@ -716,7 +716,6 @@ UINT_8 FlashProgram129( UINT_8 ModuleVendor, UINT_8 ActVer,struct cam_ois_ctrl_t
 	UINT_32 ois_version = 0;
 	UINT_32 fw_version = 0;
 	UINT_32 oem_version = 0;
-	INT_32  sizeFromDts = 0;
 	int32_t rc = 0;
 	struct cam_hw_soc_info *soc_info = &o_ctrl->soc_info;
 	struct device_node *of_node = NULL;
@@ -726,14 +725,11 @@ UINT_8 FlashProgram129( UINT_8 ModuleVendor, UINT_8 ActVer,struct cam_ois_ctrl_t
 
 	ptr = ( CODE_TBL_EXT * )CdTbl ;
 
-	sizeFromDts = of_property_count_u8_elems(of_node, "fw_data");
-	if (sizeFromDts <= 0) {
+	ptr->SizeFromCode = of_property_count_u8_elems(of_node, "fw_data");
+	if (ptr->SizeFromCode <= 0) {
 		CAM_ERR(CAM_OIS, "ptr->SizeFromCode <= 0 s:%d",of_property_count_u8_elems(of_node, "fw_data"));
 		return 0;
 	}
-
-	ptr->SizeFromCode = sizeFromDts;
-
 	CAM_INFO(CAM_OIS,"allocating fw_data_size: %d", ptr->SizeFromCode);
 
 	vaddr = vmalloc(sizeof(uint8_t) * ptr->SizeFromCode);

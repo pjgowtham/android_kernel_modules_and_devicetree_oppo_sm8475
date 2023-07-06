@@ -83,7 +83,6 @@
 #include "../voocphy/oplus_voocphy.h"
 #include <tcpm.h>
 
-#define DEFAULT_BATTERY_TMP_WHEN_ERROR	-400
 static bool em_mode = false;
 #ifdef OPLUS_FEATURE_CHG_BASIC
 #define OPLUS_FLASHLIGHT_DEFALUT_TEMP_UV 1636364
@@ -2314,22 +2313,6 @@ static int oplus_mt6360_get_chg_current_step(void)
 	return 100;
 }
 
-static bool oplus_pd_without_usb(void)
-{
-	struct tcpc_device *tcpc;
-
-	tcpc = tcpc_dev_get_by_name("type_c_port0");
-	if (!tcpc) {
-		chg_err("get type_c_port0 fail\n");
-		return true;
-	}
-
-	if (!tcpm_inquire_pd_connected(tcpc))
-		return true;
-	return (tcpm_inquire_dpm_flags(tcpc) &
-			DPM_FLAGS_PARTNER_USB_COMM) ? false : true;
-}
-
 int mt_power_supply_type_check(void)
 {
 	int charger_type = POWER_SUPPLY_TYPE_UNKNOWN;
@@ -2338,10 +2321,7 @@ int mt_power_supply_type_check(void)
 	case CHARGER_UNKNOWN:
 		break;
 	case STANDARD_HOST:
-		if (!oplus_pd_without_usb())
-			charger_type = POWER_SUPPLY_TYPE_USB_PD_SDP;
-		else
-			charger_type = POWER_SUPPLY_TYPE_USB;
+		charger_type = POWER_SUPPLY_TYPE_USB;
 		break;
 	case CHARGING_HOST:
 		charger_type = POWER_SUPPLY_TYPE_USB_CDP;
@@ -2360,9 +2340,6 @@ int mt_power_supply_type_check(void)
 
 	if (g_oplus_chip) {
 		if ((g_oplus_chip->charger_type != charger_type) && g_oplus_chip->usb_psy) {
-			g_oplus_chip->charger_type = charger_type;
-			if (charger_type == POWER_SUPPLY_TYPE_USB_PD_SDP)
-				oplus_chg_turn_on_charging(g_oplus_chip);
 			chg_debug("charger_type[%d] [%d] power_supply_changed.\n", charger_type, g_oplus_chip->charger_type);
 			power_supply_changed(g_oplus_chip->usb_psy);
 		}
@@ -3858,27 +3835,13 @@ static int mt_ac_get_property(struct power_supply *psy,
 	int rc = 0;
 
 	rc = oplus_ac_get_property(psy, psp, val);
-	if (rc < 0) {
-		val->intval = 0;
-	}
-
 	return rc;
 }
 
 static int mt_usb_get_property(struct power_supply *psy,
 	enum power_supply_property psp, union power_supply_propval *val)
 {
-	int rc = 0;
-
-	switch (psp) {
-	default:
-		rc = oplus_usb_get_property(psy, psp, val);
-		if (rc < 0) {
-			val->intval = 0;
-		}
-	}
-
-	return rc;
+	return oplus_usb_get_property(psy, psp, val);
 }
 
 static int battery_prop_is_writeable(struct power_supply *psy,
@@ -3897,34 +3860,26 @@ static int battery_get_property(struct power_supply *psy,
 	enum power_supply_property psp, union power_supply_propval *val)
 {
 	int rc = 0;
-
-	switch (psp) {
-	case POWER_SUPPLY_PROP_CAPACITY_LEVEL:
-		val->intval = POWER_SUPPLY_CAPACITY_LEVEL_NORMAL;
-		if (g_oplus_chip && (g_oplus_chip->ui_soc == 0)) {
-			val->intval = POWER_SUPPLY_CAPACITY_LEVEL_CRITICAL;
-			chg_err("bat pro POWER_SUPPLY_CAPACITY_LEVEL_CRITICAL, should shutdown!!!\n");
+		switch (psp) {
+		case POWER_SUPPLY_PROP_CAPACITY_LEVEL:
+			val->intval = POWER_SUPPLY_CAPACITY_LEVEL_NORMAL;
+			if (g_oplus_chip && (g_oplus_chip->ui_soc == 0)) {
+				val->intval = POWER_SUPPLY_CAPACITY_LEVEL_CRITICAL;
+				chg_err("bat pro POWER_SUPPLY_CAPACITY_LEVEL_CRITICAL, should shutdown!!!\n");
+			}
+			break;
+		case POWER_SUPPLY_PROP_CHARGE_FULL_DESIGN:
+			if (g_oplus_chip) {
+				val->intval = g_oplus_chip->batt_fcc * 1000;
+			}
+			break;
+		case POWER_SUPPLY_PROP_TIME_TO_FULL_NOW:
+			val->intval = 0;
+			break;
+		default:
+			rc = oplus_battery_get_property(psy, psp, val);
+			break;
 		}
-		break;
-	case POWER_SUPPLY_PROP_CHARGE_FULL_DESIGN:
-		if (g_oplus_chip) {
-			val->intval = g_oplus_chip->batt_fcc * 1000;
-		}
-		break;
-	case POWER_SUPPLY_PROP_TIME_TO_FULL_NOW:
-		val->intval = 0;
-		break;
-	default:
-		rc = oplus_battery_get_property(psy, psp, val);
-		if (rc < 0) {
-			if (psp == POWER_SUPPLY_PROP_TEMP)
-				val->intval = DEFAULT_BATTERY_TMP_WHEN_ERROR;
-			else
-				val->intval = 0;
-		}
-		break;
-	}
-
 	return 0;
 }
 

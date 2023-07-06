@@ -180,7 +180,6 @@ void iris_frc_mif_reg_set(void)
 	u32 val_frcc_phase_ctrl_1 = 0x00551919;
 	u32 val_frcc_fk_ctrl_3 = 0x3c3e0218;
 	u32 val_frcc_fk_ctrl_4 = 0x8000332d;
-	u32 val_frcc_fk_ctrl_5 = 0x0051a7a8;
 	u32 val_frcc_enable_0 = 0x0025d49f;
 	u32 val_frcc_enable_1 = 0x90db1000;
 	u32 val_frcc_reg10 = 0x29101f;
@@ -248,16 +247,6 @@ void iris_frc_mif_reg_set(void)
 	if (pcfg->rx_mode == DSI_OP_CMD_MODE && pcfg->tx_mode == DSI_OP_VIDEO_MODE)
 		val_frcc_enable_0 &= ~0x2;	// disable FMD
 
-	if (pcfg->memc_info.panel_fps == 120) {
-		val_frcc_fk_ctrl_3 = 0x1e1f0218;
-		val_frcc_fk_ctrl_4 = 0x800033d6;
-		val_frcc_fk_ctrl_5 = 0x0028d3d4;
-	} else if (pcfg->memc_info.panel_fps == 90) {
-		val_frcc_fk_ctrl_3 = 0x282a0218;
-		val_frcc_fk_ctrl_4 = 0x800033de;
-		val_frcc_fk_ctrl_5 = 0x0035151a;
-	}
-
 	if (iris_low_latency_mode_get() == ULTRA_LT_MODE) {
 		/* two buffer mode, disable REP_FRM_DET_EN and MVC_PPC_EN */
 		if (!iris_three_buffer_low_latency)
@@ -265,7 +254,6 @@ void iris_frc_mif_reg_set(void)
 		val_frcc_reg1 = 0x00280000;
 		val_frcc_phase_ctrl_0 = 0x042dfc04;
 		val_frcc_phase_ctrl_1 = 0x00511919;
-		val_frcc_fk_ctrl_4 = (val_frcc_fk_ctrl_4 & (~0x0003c000)) | (4 << 14);
 	} else if ((iris_low_latency_mode_get() == LT_MODE) ||
 			(iris_low_latency_mode_get() == NORMAL_LT)) {
 		val_frcc_enable_0 |= ((pcfg->frc_setting.layer_c_en << 9) |
@@ -315,14 +303,12 @@ void iris_frc_mif_reg_set(void)
 		val_frcc_reg3 = (val_frcc_reg3 & 0x0fffffff) | ((iris_fi_drop_frm_thr & 0xf) << 28);
 	else
 		val_frcc_reg3 = val_frcc_reg3 & 0x0fffffff;
-
 	iris_frc_reg_add(IRIS_FRC_MIF_ADDR + FRCC_CTRL_REG3, val_frcc_reg3, 0);
 	iris_frc_reg_add(IRIS_FRC_MIF_ADDR + FRCC_CTRL_REG4, val_frcc_reg4, 0);
 	iris_frc_reg_add(IRIS_FRC_MIF_ADDR + FRCC_CTRL_REG6, val_frcc_reg6, 0);
 	iris_frc_reg_add(IRIS_FRC_MIF_ADDR + FRCC_FK_CTRL_3, val_frcc_fk_ctrl_3, 0);
 	iris_frc_reg_add(IRIS_FRC_MIF_ADDR + FRCC_FK_CTRL_4,
 					val_frcc_fk_ctrl_4 | (memc_level << 6), 0);
-	iris_frc_reg_add(IRIS_FRC_MIF_ADDR + FRCC_FK_CTRL_5, val_frcc_fk_ctrl_5, 0);
 	if ((frc_setting->mv_hres > 96) && (frc_setting->mv_vres > 384))
 		val_frcc_reg10 &= (~0x00000010);
 	iris_frc_reg_add(IRIS_FRC_MIF_ADDR + FRCC_CTRL_REG10, val_frcc_reg10, 0);

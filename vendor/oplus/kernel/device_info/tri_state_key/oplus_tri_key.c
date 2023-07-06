@@ -40,6 +40,7 @@
 #include <linux/delay.h>
 #include <linux/time.h>
 
+
 #include <linux/string.h>
 #include <linux/version.h>
 
@@ -101,8 +102,6 @@ static short calib_upvaluemin, calib_mdvaluemin, calib_dnvaluemin;
 static short calib_dnhall_um_distance, calib_dnhall_md_distance;
 static short calib_uphall_um_distance, calib_uphall_md_distance;
 static short calib_uphall_ud_distance, calib_dnhall_ud_distance;
-
-static bool is_has_data_offect = false;
 
 void oplus_hall_disable_irq(bool enable)
 {
@@ -840,10 +839,6 @@ static void tri_key_dev_work(struct work_struct *work)
 	ktime_t starttime, endtime;
 	u64 usecs64;
 	int usecs;
-#if defined(CONFIG_OPLUS_FEATURE_FEEDBACK) || defined(CONFIG_OPLUS_FEATURE_FEEDBACK_MODULE)
-	char payload[1024] = {0x00};
-#endif
-	int interf_type = INTERF_TYPE_NONE;
 
 	mutex_lock(&chip->mtx);
 
@@ -867,7 +862,6 @@ static void tri_key_dev_work(struct work_struct *work)
 	TRI_KEY_LOG("tri_key:chip->interf is %d ,chip->state is %d\n",
 					chip->interf, chip->state);
 	if (!last_interf && chip->interf) {
-		interf_type = INTERF_TYPE_1;
 		msleep(200);
 		oplus_get_data(chip);
 		TRI_KEY_LOG("tri_key:data1 is %d, data0 is %d\n",
@@ -887,14 +881,12 @@ static void tri_key_dev_work(struct work_struct *work)
 			msleep(50);
 			oplus_get_data(chip);
 			judge_interference(chip);
-			if (chip->interf) {
-				interf_type = INTERF_TYPE_2;
+			if (chip->interf)
 				goto FINAL;
-			} else {
+			else
 				get_position(chip);
 			}
 		}
-	}
 	else {
 		hrtimer_cancel(&tri_key_timer);
 		TRI_KEY_LOG("tri_key:time0 is %d\n", time);
@@ -917,11 +909,9 @@ static void tri_key_dev_work(struct work_struct *work)
 				diff0, diff1);
 			if ((diff0 > -10 && diff0 < 10) &&
 					(diff1 > -10 && diff1 < 10)) {
-				interf_type = INTERF_TYPE_3;
 				chip->position = last_position;
 				goto UPDATA_HTRES;
 			} else {/*inconstant interference*/
-				interf_type = INTERF_TYPE_4;
 				last_interf = chip->interf;
 				goto FINAL;
 			}
@@ -938,12 +928,10 @@ static void tri_key_dev_work(struct work_struct *work)
 			if (interf_count == 15) {
 				TRI_KEY_LOG("tri_key:count = 15,msleep 5s\n");
 				msleep(5000);
-				interf_type = INTERF_TYPE_5;
 				interf_count = 0;
 				goto FINAL;
 			}
 			TRI_KEY_LOG("tri_key:inconstantlt interference\n");
-			interf_type = INTERF_TYPE_6;
 			reupdata_threshold(chip);
 			goto FINAL;
 		}
@@ -951,13 +939,10 @@ static void tri_key_dev_work(struct work_struct *work)
 		chip->dhall_data0 = aver0;
 		chip->dhall_data1 = aver1;
 		position = interf_get_position(chip);
-		if (position == -22) {
+		if (position == -22)
 			TRI_KEY_LOG("tri_key:get position failed\n");
-			interf_type = INTERF_TYPE_7;
-		} else {
-			interf_type = INTERF_TYPE_8;
+		else
 			chip->position = position;
-		}
 	}
 	TRI_KEY_LOG("tri_key:t_diff0 is %d,t_diff1 is %d\n",
 	chip->dhall_data0 - last_d0, chip->dhall_data1 - last_d1);
@@ -990,15 +975,6 @@ fail:
 FINAL:
 	oplus_hall_disable_irq(1);
 
-#if defined(CONFIG_OPLUS_FEATURE_FEEDBACK) || defined(CONFIG_OPLUS_FEATURE_FEEDBACK_MODULE)
-	if (interf_type > INTERF_TYPE_NONE) {
-		scnprintf(payload, sizeof(payload),
-				   "NULL$$EventField@@Interf%d$$FieldData@@cnt%d$$detailData@@pos%d %d %d",
-				   interf_type, interf_count,
-				   chip->position, chip->dhall_data0, chip->dhall_data1);
-		oplus_kevent_fb(FB_TRI_STATE_KEY, TRIKEY_FB_INTERF_TYPE, payload);
-	}
-#endif
 	TRI_KEY_LOG("%s achieve\n", __func__);
 	mutex_unlock(&chip->mtx);
 }
@@ -1050,9 +1026,6 @@ void initialCalibValue(short calib_dnHall_UpV, short calib_dnHall_MdV,
 			short calib_dnHall_DnV, short calib_upHall_UpV,
 			short calib_upHall_MdV, short calib_upHall_DnV)
 {
-#if defined(CONFIG_OPLUS_FEATURE_FEEDBACK) || defined(CONFIG_OPLUS_FEATURE_FEEDBACK_MODULE)
-	char payload[1024] = {0x00};
-#endif
 	calib_upvaluesum = Sum(calib_dnHall_UpV, calib_upHall_UpV);
 	calib_mdvaluesum = Sum(calib_dnHall_MdV, calib_upHall_MdV);
 	calib_dnvaluesum = Sum(calib_dnHall_DnV, calib_upHall_DnV);
@@ -1078,16 +1051,6 @@ void initialCalibValue(short calib_dnHall_UpV, short calib_dnHall_MdV,
 	mid_down_distance = (short)(abs(calib_mdvaluemin -
 				calib_dnvaluemin) * 2 / 10);
 
-#if defined(CONFIG_OPLUS_FEATURE_FEEDBACK) || defined(CONFIG_OPLUS_FEATURE_FEEDBACK_MODULE)
-	scnprintf(payload, sizeof(payload),
-			   "NULL$$EventField@@CalibData$$FieldData@@%d,%d,%d,%d,%d,%d$$detailData@@%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d",
-			   calib_dnHall_UpV, calib_dnHall_MdV, calib_dnHall_DnV, calib_upHall_UpV, calib_upHall_MdV, calib_upHall_DnV,
-			   calib_upvaluesum, calib_mdvaluesum, calib_dnvaluesum, calib_upvaluemin, calib_mdvaluemin, calib_dnvaluemin,
-			   calib_uphall_um_distance, calib_uphall_md_distance, calib_dnhall_um_distance,
-			   calib_dnhall_md_distance, calib_uphall_ud_distance, calib_dnhall_ud_distance,
-			   up_mid_tol, up_tolerance, mid_down_tol, down_tolerance, up_mid_distance, mid_down_distance);
-	oplus_kevent_fb(FB_TRI_STATE_KEY, TRIKEY_FB_CALIB_DATA_TYPE, payload);
-#endif
 	TRI_KEY_LOG("Upmin:%d, Mdmin:%d, Dnmin:%d\n",
 		calib_upvaluemin, calib_mdvaluemin, calib_dnvaluemin);
 	TRI_KEY_LOG("up_mid_tol:%d, mid_down_tol:%d\n",
@@ -1284,76 +1247,6 @@ static const struct proc_ops proc_hall_enable_irq_ops = {
 	.proc_lseek	= default_llseek,
 };
 
-static ssize_t proc_hall_data_offect_write(struct file *file, const char __user *buffer,
-			size_t count, loff_t *ppos)
-{
-	int tmp = 0;
-	char buf[MAX_LEN] = {0};
-	int ret = -1;
-	char *token  = NULL;
-	char *tmp_str = NULL;
-
-	mutex_lock(&g_hall_dev->mtx);
-
-	ret = copy_from_user(buf, buffer, count);
-	if (ret) {
-		TRI_KEY_ERR("%s: read proc input error.\n", __func__);
-		return -EFAULT;
-	}
-
-	if (strstr(buf, OFFECT_UP) != NULL) {
-		TRI_KEY_ERR("%s:detect %s", __func__, OFFECT_UP);
-		tmp_str = buf;
-		token = strsep(&tmp_str, OFFECT_CUT);
-		token = strsep(&tmp_str, OFFECT_CUT);
-		strcpy(buf, token);
-		if (!kstrtoint(buf, 0, &tmp)) {
-			if (tmp > OFFECT_MAX) {
-				TRI_KEY_ERR("%s:illegal data!! not to write", __func__, tmp);
-				goto OUT;
-			}
-			g_the_chip->data_offect = tmp;
-			TRI_KEY_ERR("%s: write->data_offect:%d\n", __func__, g_the_chip->data_offect);
-			ret = g_the_chip->dhall_up_ops->offect_data_handle(g_the_chip->data_offect);
-		}
-	}
-
-OUT:
-	mutex_unlock(&g_hall_dev->mtx);
-	return count;
-}
-static ssize_t proc_hall_data_offect_read(struct file *file, char __user *user_buf,
-			 size_t count, loff_t *ppos)
-{
-	int ret = -1;
-	char page[MAX_LEN] = {0};
-
-	mutex_lock(&g_hall_dev->mtx);
-
-	if (!g_the_chip) {
-		TRI_KEY_ERR("g_the_chip null\n");
-		snprintf(page, MAX_LEN, "%d\n", -1);
-	} else {
-		if (!strcmp(g_hall_dev->data_offect_name, OFFECT_UP)) {
-			TRI_KEY_ERR("now get up offect data\n");
-			ret = g_the_chip->dhall_up_ops->offect_data_handle(READ_OFFECT);
-			snprintf(page, MAX_LEN, "up: offect:%d\n", ret);
-		}
-	}
-
-	ret = simple_read_from_buffer(user_buf, count, ppos, page, strlen(page));
-
-	mutex_unlock(&g_hall_dev->mtx);
-	return ret;
-}
-
-static const struct proc_ops proc_hall_data_offect_ops = {
-	.proc_write = proc_hall_data_offect_write,
-	.proc_read  = proc_hall_data_offect_read,
-	.proc_open  = simple_open,
-	.proc_lseek = default_llseek,
-};
-
 static int init_trikey_proc(struct extcon_dev_data *hall_dev)
 {
 	int ret = 0;
@@ -1398,18 +1291,6 @@ static int init_trikey_proc(struct extcon_dev_data *hall_dev)
 	if (prEntry_tmp == NULL) {
 		ret = -ENOMEM;
 		TRI_KEY_ERR("%s: Couldn't create proc entry, %d\n", __func__, __LINE__);
-	}
-
-	TRI_KEY_ERR("%s: offect:%d.\n", __func__, is_has_data_offect);
-
-	if (is_has_data_offect) {
-		TRI_KEY_ERR("%s: detect %s offect and create proc\n", __func__, g_hall_dev->data_offect_name);
-		prEntry_tmp = proc_create("data_offect", 0666, prEntry_trikey,
-				&proc_hall_data_offect_ops);
-		if (prEntry_tmp == NULL) {
-			ret = -ENOMEM;
-			TRI_KEY_ERR("%s: Couldn't create data_offect proc, %d\n", __func__, __LINE__);
-		}
 	}
 
 	return ret;
@@ -1538,9 +1419,8 @@ int oplus_register_hall(const char *name, struct dhall_operations *ops,
 			return -ENOMEM;
 		}
 		g_the_chip = chip;
+		g_hall_dev = hall_dev;
 	}
-
-	g_hall_dev = hall_dev;
 	TRI_KEY_LOG("name : %s\n", name);
 	if (strcmp(name, "hall_down") == 0) {
 		TRI_KEY_LOG("name == hall_down");
@@ -1578,13 +1458,6 @@ int oplus_register_hall(const char *name, struct dhall_operations *ops,
 			return -EINVAL;
 		}
 	}
-
-	TRI_KEY_LOG("%s: offect:%s.\n", __func__, g_hall_dev->data_offect_name);
-	if (!strncmp(g_hall_dev->data_offect_name, OFFECT_UP, strlen(OFFECT_UP)) ||
-		!strncmp(g_hall_dev->data_offect_name, OFFECT_DOWN, strlen(OFFECT_DOWN))) {
-		is_has_data_offect = true;
-	}
-
 	if (hall_count > 1) {
 		INIT_WORK(&g_the_chip->register_work, register_tri_key_dev_work);
 		schedule_work(&g_the_chip->register_work);

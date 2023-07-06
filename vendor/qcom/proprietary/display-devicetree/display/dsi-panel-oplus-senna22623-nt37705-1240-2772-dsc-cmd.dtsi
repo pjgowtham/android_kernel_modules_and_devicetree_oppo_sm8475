@@ -1849,6 +1849,8 @@
 				qcom,mdss-dsi-aod-hbm-on-command-state = "dsi_hs_mode";
 				qcom,mdss-dsi-aod-hbm-off-command-state = "dsi_hs_mode";
 				qcom,mdss-dsi-timing-switch-command-state = "dsi_hs_mode";
+				qcom,mdss-dsi-bl-16plus-command-state = "dsi_hs_mode";
+				qcom,mdss-dsi-bl-3plus-command-state = "dsi_hs_mode";
 				qcom,mdss-dsi-on-command-state = "dsi_lp_mode";
 				qcom,mdss-dsi-off-command-state = "dsi_hs_mode";
 				qcom,mdss-dsi-hbm-on-command-state = "dsi_hs_mode";

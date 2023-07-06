@@ -30,7 +30,6 @@
 
 #ifdef OPLUS_FEATURE_CHG_BASIC
 #define OEM_OPCODE_READ_BUFFER    0x10000
-#define BCC_OPCODE_READ_BUFFER    0x10003
 #define OEM_READ_WAIT_TIME_MS    500
 #define MAX_OEM_PROPERTY_DATA_SIZE 128
 #define QC_TYPE_CHECK_INTERVAL 200 /* ms */
@@ -39,8 +38,6 @@
 #define MSG_OWNER_BC			32778
 #define MSG_TYPE_REQ_RESP		1
 #define MSG_TYPE_NOTIFY			2
-
-#define MSLEEP_35MS 35
 
 /* opcode for battery charger */
 #define BC_SET_NOTIFY_REQ		0x04
@@ -317,24 +314,6 @@ enum ship_mode_type {
 	SHIP_MODE_PACK_SIDE,
 };
 
-typedef enum {
-	DOUBLE_SERIES_WOUND_CELLS = 0,
-	SINGLE_CELL,
-	DOUBLE_PARALLEL_WOUND_CELLS,
-} SCC_CELL_TYPE;
-
-typedef enum {
-	TI_GAUGE = 0,
-	SW_GAUGE,
-	UNKNOWN_GAUGE_TYPE,
-} SCC_GAUGE_TYPE;
-
-#define DEVICE_BQ27541 0
-#define DEVICE_BQ27411 1
-#define DEVICE_BQ28Z610 2
-#define DEVICE_ZY0602 3
-#define DEVICE_ZY0603 4
-
 /* property ids */
 enum battery_property_id {
 	BATT_STATUS,
@@ -472,10 +451,6 @@ enum {
 	QTI_POWER_SUPPLY_USB_TYPE_HVDCP_3P5,
 };
 
-enum oplus_power_supply_usb_type {
-	POWER_SUPPLY_USB_TYPE_PD_SDP = 17,
-};
-
 enum OTG_SCHEME {
 	OTG_SCHEME_CID,
 	OTG_SCHEME_CCDETECT_GPIO,
@@ -493,26 +468,6 @@ enum OEM_MISC_CTL_CMD {
 	OEM_MISC_CTL_CMD_LCM_25K = 2,
 	OEM_MISC_CTL_CMD_NCM_AUTO_MODE = 4,
 	OEM_MISC_CTL_CMD_VPH_TRACK_HIGH = 6,
-};
-
-typedef enum _QCOM_PM_TYPEC_PORT_ROLE_TYPE
-{
-        QCOM_TYPEC_PORT_ROLE_DRP,
-        QCOM_TYPEC_PORT_ROLE_SNK,
-        QCOM_TYPEC_PORT_ROLE_SRC,
-        QCOM_TYPEC_PORT_ROLE_DISABLE,
-        QCOM_TYPEC_PORT_ROLE_INVALID
-} QCOM_PM_TYPEC_PORT_ROLE_TYPE;
-
-QCOM_PM_TYPEC_PORT_ROLE_TYPE qcom_typec_port_role[] = {
-	QCOM_TYPEC_PORT_ROLE_DRP,
-	QCOM_TYPEC_PORT_ROLE_SNK,
-	QCOM_TYPEC_PORT_ROLE_SRC,
-	QCOM_TYPEC_PORT_ROLE_DRP,
-	QCOM_TYPEC_PORT_ROLE_INVALID,
-	QCOM_TYPEC_PORT_ROLE_DISABLE,
-	QCOM_TYPEC_PORT_ROLE_INVALID,
-	QCOM_TYPEC_PORT_ROLE_INVALID
 };
 
 struct battery_charger_set_notify_msg {
@@ -697,7 +652,6 @@ struct battery_chg_dev {
 	bool 				hvdcp_detect_ok;
 	bool					hvdcp_disable;
 	struct delayed_work 	hvdcp_disable_work;
-	struct delayed_work 	pd_only_check_work;
 	bool					voocphy_err_check;
 #endif
 #ifdef OPLUS_FEATURE_CHG_BASIC
@@ -730,9 +684,6 @@ struct battery_chg_dev {
 	struct mutex    read_buffer_lock;
 	struct completion    oem_read_ack;
 	struct oem_read_buffer_resp_msg  read_buffer_dump;
-	struct mutex    bcc_read_buffer_lock;
-	struct completion    bcc_read_ack;
-	struct oem_read_buffer_resp_msg  bcc_read_buffer_dump;
 	int otg_scheme;
 	int otg_boost_src;
 	int otg_curr_limit_max;
@@ -776,6 +727,5 @@ struct qcom_pmic {
 int oplus_adsp_voocphy_get_fast_chg_type(void);
 int oplus_adsp_voocphy_enable(bool enable);
 int oplus_adsp_voocphy_reset_again(void);
-int oplus_adsp_batt_curve_current(void);
 #endif
 #endif /*__SM8450_CHARGER_H*/
